@@ -4,3 +4,5 @@ dist/
 .wrangler/
 android/app/build/
 android/.gradle/
+*.jks
+keystore-base64.txt

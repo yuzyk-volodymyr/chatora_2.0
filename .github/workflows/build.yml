@@ -32,24 +32,25 @@ jobs:
     - name: Sync Capacitor
       run: npx cap sync android
 
-    - name: Prepare Gradle Wrapper
+    - name: Prepare Keystore
       run: |
-        cd android
-        if [ ! -s gradlew ]; then
-          echo "❌ Ошибка: Файл gradlew отсутствует или пуст."
-          exit 1
-        fi
-        sed -i 's/\r$//' gradlew
-        chmod +x gradlew
-        echo "✅ Gradle Wrapper подготовлен."
+        echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/chatora-release.jks
+        cat > android/key.properties <<EOF
+        storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
+        keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+        keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+        storeFile=chatora-release.jks
+        EOF
 
-    - name: Build APK with Gradle
+    - name: Build Release APK
       run: |
         cd android
-        ./gradlew assembleDebug
+        chmod +x gradlew
+        sed -i 's/\r$//' gradlew
+        ./gradlew assembleRelease
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Chatora-APK
-        path: android/app/build/outputs/apk/debug/app-debug.apk
+        name: Chatora-Release-APK
+        path: android/app/build/outputs/apk/release/app-release.apk
