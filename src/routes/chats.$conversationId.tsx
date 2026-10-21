@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type Profile } from "@/hooks/useAuth";
 import { t } from "@/lib/i18n";
 import { useCall, callText } from "@/lib/call";
-import { Phone, MoreVertical, Paperclip, Mic, Square, Send } from "lucide-react";
+import { Phone, MoreVertical, Paperclip, Mic, Square, Send, Pencil, Trash2, X } from "lucide-react";
 
 export const Route = createFileRoute("/chats/$conversationId")({
   component: Conversation,
@@ -16,6 +16,7 @@ type Message = {
   body: string | null;
   audio_path: string | null;
   created_at: string;
+  is_edited?: boolean;
 };
 
 function dayKey(iso: string): string {
@@ -59,8 +60,13 @@ function Conversation() {
   const [myLang, setMyLang] = useState<string>("ru");
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
-  const [customName, setCustomName] = useState<string | null>(null); // Для переименования
+  const [customName, setCustomName] = useState<string | null>(null);
   
+  // Состояния для меню и редактирования
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const [recording, setRecording] = useState(false);
@@ -69,7 +75,7 @@ function Conversation() {
   const tr = t(myLang);
   const call = useCall();
 
-  // 1. Загрузка данных, отметка о прочтении и получение кастомного имени
+  // 1. Загрузка данных и отметка о прочтении
   useEffect(() => {
     if (!user) return;
     let active = true;
@@ -80,7 +86,6 @@ function Conversation() {
       
       const otherId = convo.user_a === user.id ? convo.user_b : convo.user_a;
       
-      // Загружаем профили
       const { data: profiles } = await supabase.from("profiles").select("id, user_number, gender, preferred_language, is_premium").in("id", [otherId, user.id]);
       if (!active) return;
       
@@ -89,33 +94,38 @@ function Conversation() {
       const me = rows.find((p) => p.id === user.id);
       if (me) setMyLang(me.preferred_language);
 
-      // Загружаем кастомное имя (алиас)
       const { data: aliasData } = await supabase.from("contact_aliases").select("alias").eq("owner_id", user.id).eq("contact_id", otherId).maybeSingle();
       if (active && aliasData) setCustomName(aliasData.alias);
 
-      // Загружаем сообщения
-      const { data: msgs } = await supabase.from("messages").select("id, sender_id, body, audio_path, created_at").eq("conversation_id", conversationId).order("created_at", { ascending: true });
+      const { data: msgs } = await supabase.from("messages").select("*").eq("conversation_id", conversationId).order("created_at", { ascending: true });
       if (active) setMessages((msgs ?? []) as Message[]);
       
-      // Отмечаем входящие как прочитанные
       await supabase.from("messages").update({ is_read: true }).eq("conversation_id", conversationId).neq("sender_id", user.id).eq("is_read", false);
     })();
 
     return () => { active = false; };
   }, [conversationId, user]);
 
-  // 2. Подписка на новые сообщения
+  // 2. Подписка на изменения (INSERT, UPDATE, DELETE)
   useEffect(() => {
     const channel = supabase
       .channel(`messages-${conversationId}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
+        { event: "*", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
         (payload) => {
-          const row = payload.new as Message;
-          setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]));
-          if (row.sender_id !== user?.id) {
-             supabase.from("messages").update({ is_read: true }).eq("id", row.id).then();
+          if (payload.eventType === 'INSERT') {
+            const row = payload.new as Message;
+            setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]));
+            if (row.sender_id !== user?.id) {
+               supabase.from("messages").update({ is_read: true }).eq("id", row.id).then();
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            const row = payload.new as Message;
+            setMessages((prev) => prev.map(m => m.id === row.id ? row : m));
+          } else if (payload.eventType === 'DELETE') {
+            const oldRow = payload.old as Message;
+            setMessages((prev) => prev.filter(m => m.id !== oldRow.id));
           }
         },
       )
@@ -128,14 +138,14 @@ function Conversation() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
-  // 3. Отправка текста
+  // Отправка текста
   async function send(e: React.FormEvent) {
     e.preventDefault();
     const body = text.trim();
     if (!body || !user || sending) return;
     setSending(true);
     setText("");
-    const { data, error } = await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, body }).select("id, sender_id, body, audio_path, created_at").single();
+    const { data, error } = await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, body }).select("*").single();
     if (!error && data) {
       const row = data as Message;
       setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]));
@@ -143,11 +153,24 @@ function Conversation() {
     setSending(false);
   }
 
-  function addRow(row: Message) {
-    setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]));
+  // Удаление сообщения
+  async function handleDelete(id: string) {
+    if (!window.confirm("Вы уверены, что хотите удалить это сообщение?")) return;
+    setActiveMenuId(null);
+    await supabase.from("messages").delete().eq("id", id);
+    setMessages((prev) => prev.filter(m => m.id !== id));
   }
 
-  // 4. Запись голоса
+  // Сохранение редактирования
+  async function handleSaveEdit() {
+    if (!editText.trim() || !editingId) return;
+    const newBody = editText.trim();
+    setEditingId(null);
+    await supabase.from("messages").update({ body: newBody, is_edited: true }).eq("id", editingId);
+    setMessages(prev => prev.map(m => m.id === editingId ? { ...m, body: newBody, is_edited: true } : m));
+  }
+
+  // Запись голоса
   async function toggleRecord() {
     if (recording) {
       recorderRef.current?.stop();
@@ -169,8 +192,8 @@ function Conversation() {
         const path = `${conversationId}/${crypto.randomUUID()}.${ext}`;
         const { error: upErr } = await supabase.storage.from("voice").upload(path, blob, { contentType: type });
         if (upErr) return;
-        const { data } = await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, audio_path: path }).select("id, sender_id, body, audio_path, created_at").single();
-        if (data) addRow(data as Message);
+        const { data } = await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, audio_path: path }).select("*").single();
+        if (data) setMessages(prev => [...prev, data as Message]);
       };
       recorderRef.current = rec;
       rec.start();
@@ -237,13 +260,54 @@ function Conversation() {
                 </div>
               )}
               <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[80%] rounded-3xl px-4 py-2.5 text-[15px] shadow-sm ${mine ? "bg-gradient-to-tr from-[#7c3aed] to-[#a855f7] text-white rounded-br-sm" : "bg-[#1f1f22] text-zinc-100 rounded-bl-sm border border-zinc-800/50"}`}>
-                  {m.audio_path ? (
-                    <VoiceBubble path={m.audio_path} mine={mine} />
-                  ) : (
-                    <p dir="auto" className="whitespace-pre-wrap break-words">{m.body}</p>
+                <div className={`relative max-w-[80%] rounded-3xl px-4 py-2.5 text-[15px] shadow-sm ${mine ? "bg-gradient-to-tr from-[#7c3aed] to-[#a855f7] text-white rounded-br-sm" : "bg-[#1f1f22] text-zinc-100 rounded-bl-sm border border-zinc-800/50"}`}>
+                  
+                  {/* Кнопка меню для своих сообщений */}
+                  {mine && !editingId && (
+                    <button 
+                      onClick={() => setActiveMenuId(activeMenuId === m.id ? null : m.id)}
+                      className="absolute -right-2 -top-2 hidden sm:flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 text-zinc-400 shadow-md hover:text-white"
+                    >
+                      <MoreVertical className="h-3 w-3" />
+                    </button>
                   )}
+
+                  {/* Выпадающее меню (Редактировать/Удалить) */}
+                  {activeMenuId === m.id && (
+                    <div className="absolute right-0 top-8 z-50 w-32 rounded-xl border border-zinc-700 bg-zinc-800 p-1 shadow-xl">
+                      <button onClick={() => { setEditingId(m.id); setEditText(m.body || ""); setActiveMenuId(null); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-white hover:bg-zinc-700">
+                        <Pencil className="h-3 w-3" /> Изменить
+                      </button>
+                      <button onClick={() => handleDelete(m.id)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-red-400 hover:bg-zinc-700">
+                        <Trash2 className="h-3 w-3" /> Удалить
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Режим редактирования */}
+                  {editingId === m.id ? (
+                    <div className="flex flex-col gap-2">
+                      <input 
+                        autoFocus
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        className="w-full rounded-md bg-black/20 px-2 py-1 text-white outline-none"
+                      />
+                      <div className="flex justify-end gap-2 text-xs">
+                        <button onClick={() => setEditingId(null)} className="text-zinc-300 hover:text-white"><X className="h-4 w-4"/></button>
+                        <button onClick={handleSaveEdit} className="text-green-400 hover:text-green-300 font-bold">Сохранить</button>
+                      </div>
+                    </div>
+                  ) : (
+                    m.audio_path ? (
+                      <VoiceBubble path={m.audio_path} mine={mine} />
+                    ) : (
+                      <p dir="auto" className="whitespace-pre-wrap break-words">{m.body}</p>
+                    )
+                  )}
+                  
                   <div className={`mt-1.5 flex items-center justify-end gap-1`}>
+                     {m.is_edited && <span className="text-[9px] opacity-70 italic mr-1">изм.</span>}
                      <p className={`text-[10px] ${mine ? "text-purple-200" : "text-zinc-500"}`}>
                       {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </p>
@@ -256,10 +320,10 @@ function Conversation() {
         <div ref={bottomRef} className="h-2" />
       </div>
 
-      {/* Панель ввода */}
-      <div className="relative z-10 shrink-0 border-t border-zinc-800/50 bg-[#0a0a0a] p-3 pb-safe">
+      {/* Панель ввода (Исправлена ширина) */}
+      <div className="relative z-10 w-full shrink-0 border-t border-zinc-800/50 bg-[#0a0a0a] px-2 py-3 pb-safe">
         {micError && <p className="mb-2 px-2 text-xs text-red-500">{micError}</p>}
-        <form onSubmit={send} className="flex items-center gap-2">
+        <form onSubmit={send} className="flex w-full items-center gap-1.5">
           <button type="button" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-purple-400 hover:bg-zinc-800/50 transition-colors">
             <Paperclip className="h-5 w-5" />
           </button>
@@ -270,14 +334,14 @@ function Conversation() {
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder={recording ? tr.recording : tr.typeMessage}
-            className="flex-1 rounded-full border border-zinc-800 bg-[#18181b] px-4 py-2.5 text-[15px] text-white placeholder-zinc-500 outline-none focus:border-purple-500/50 focus:bg-[#1f1f22] transition-colors"
+            className="min-w-0 flex-1 rounded-full border border-zinc-800 bg-[#18181b] px-4 py-2.5 text-[15px] text-white placeholder-zinc-500 outline-none focus:border-purple-500/50 focus:bg-[#1f1f22] transition-colors"
           />
 
           <button type="button" onClick={toggleRecord} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${recording ? "bg-red-500/20 text-red-500 animate-pulse" : "text-purple-400 hover:bg-zinc-800/50"}`}>
             {recording ? <Square className="h-4 w-4 fill-current" /> : <Mic className="h-5 w-5" />}
           </button>
 
-          <button type="submit" disabled={sending || !text.trim() || recording} className="flex h-10 shrink-0 items-center justify-center rounded-full bg-[#7c3aed] px-5 text-sm font-semibold text-white transition-opacity hover:bg-[#6d28d9] disabled:opacity-50 disabled:bg-zinc-800">
+          <button type="submit" disabled={sending || !text.trim() || recording} className="flex h-10 shrink-0 items-center justify-center rounded-full bg-[#7c3aed] px-4 text-sm font-semibold text-white transition-opacity hover:bg-[#6d28d9] disabled:opacity-50 disabled:bg-zinc-800">
             {tr.send}
           </button>
         </form>
