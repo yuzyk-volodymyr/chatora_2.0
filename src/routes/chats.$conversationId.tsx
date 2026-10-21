@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type Profile } from "@/hooks/useAuth";
 import { t } from "@/lib/i18n";
 import { useCall, callText } from "@/lib/call";
-import { Phone, MoreVertical, Paperclip, Mic, Square, Send, Pencil, Trash2, X } from "lucide-react";
+import { Phone, MoreVertical, Paperclip, Mic, Square, Pencil, Trash2, X } from "lucide-react";
 
 export const Route = createFileRoute("/chats/$conversationId")({
   component: Conversation,
@@ -262,11 +262,11 @@ function Conversation() {
               <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                 <div className={`relative max-w-[80%] rounded-3xl px-4 py-2.5 text-[15px] shadow-sm ${mine ? "bg-gradient-to-tr from-[#7c3aed] to-[#a855f7] text-white rounded-br-sm" : "bg-[#1f1f22] text-zinc-100 rounded-bl-sm border border-zinc-800/50"}`}>
                   
-                  {/* Кнопка меню для своих сообщений */}
+                  {/* Кнопка меню для своих сообщений (ТЕПЕРЬ ВИДНА НА ТЕЛЕФОНАХ) */}
                   {mine && !editingId && (
                     <button 
                       onClick={() => setActiveMenuId(activeMenuId === m.id ? null : m.id)}
-                      className="absolute -right-2 -top-2 hidden sm:flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 text-zinc-400 shadow-md hover:text-white"
+                      className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 text-zinc-400 shadow-md hover:text-white"
                     >
                       <MoreVertical className="h-3 w-3" />
                     </button>
@@ -320,7 +320,7 @@ function Conversation() {
         <div ref={bottomRef} className="h-2" />
       </div>
 
-      {/* Панель ввода (Исправлена ширина) */}
+      {/* Панель ввода */}
       <div className="relative z-10 w-full shrink-0 border-t border-zinc-800/50 bg-[#0a0a0a] px-2 py-3 pb-safe">
         {micError && <p className="mb-2 px-2 text-xs text-red-500">{micError}</p>}
         <form onSubmit={send} className="flex w-full items-center gap-1.5">
