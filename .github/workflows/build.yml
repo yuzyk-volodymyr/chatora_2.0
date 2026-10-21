@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write # Важно для создания релиза
+  contents: write
 
 jobs:
   build:
@@ -52,12 +52,11 @@ jobs:
         sed -i 's/\r$//' gradlew
         ./gradlew assembleRelease
 
-    # --- НОВЫЙ ШАГ: Автоматический выпуск (Release) ---
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v1.0.${{ github.run_number }}
         name: Chatora Release v1.0.${{ github.run_number }}
-        files: android/app/build/outputs/apk/release/app-release.apk
+        files: android/app/build/outputs/apk/release/*.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
