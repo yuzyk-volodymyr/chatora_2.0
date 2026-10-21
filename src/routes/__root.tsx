@@ -9,6 +9,9 @@ import {
   type ErrorComponentProps,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
+import { PushNotifications } from '@capacitor/push-notifications';
+import { Capacitor } from '@capacitor/core';
+import { supabase } from '@/integrations/supabase/client';
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -120,6 +123,35 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+
+  // --- ДОБАВЛЕННЫЙ КОД ДЛЯ PUSH-УВЕДОМЛЕНИЙ ---
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const initPush = async () => {
+      let perm = await PushNotifications.requestPermissions();
+      if (perm.receive === 'granted') {
+        await PushNotifications.register();
+      }
+    };
+
+    PushNotifications.addListener('registration', async (token) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from('device_tokens').upsert(
+          { user_id: user.id, token: token.value },
+          { onConflict: 'token' }
+        );
+      }
+    });
+
+    PushNotifications.addListener('registrationError', (error) => {
+      console.error('Ошибка пуш-уведомлений:', error);
+    });
+
+    initPush();
+  }, []);
+  // ----------------------------------------------
 
   return (
     <QueryClientProvider client={queryClient}>

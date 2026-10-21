@@ -10,18 +10,7 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Chatora — anonymous 1-to-1 messenger" },
-      {
-        name: "description",
-        content:
-          "Sign in to Chatora and chat one-to-one, anonymously. You are only a number here.",
-      },
-      { property: "og:title", content: "Chatora — anonymous 1-to-1 messenger" },
-      {
-        property: "og:description",
-        content: "Anonymous one-to-one conversations in your own language.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
+      { name: "description", content: "Sign in to Chatora and chat one-to-one, anonymously." },
     ],
   }),
   component: Landing,
@@ -99,10 +88,7 @@ function Landing() {
           <p className="mt-2 text-sm text-muted-foreground">{tr.tagline}</p>
         </div>
 
-        <form
-          onSubmit={submit}
-          className="space-y-4 rounded-3xl border border-border bg-card p-6 shadow-sm"
-        >
+        <form onSubmit={submit} className="space-y-4 rounded-3xl border border-border bg-card p-6 shadow-sm">
           <div className="flex rounded-2xl bg-muted p-1 text-sm">
             {(["up", "in"] as const).map((m) => (
               <button
@@ -110,9 +96,7 @@ function Landing() {
                 type="button"
                 onClick={() => setMode(m)}
                 className={`flex-1 rounded-xl px-3 py-2 font-medium transition-colors ${
-                  mode === m
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
+                  mode === m ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {m === "up" ? tr.signUp : tr.signIn}
@@ -123,10 +107,7 @@ function Landing() {
           <label className="block space-y-1.5">
             <span className="text-xs font-medium text-muted-foreground">{tr.email}</span>
             <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-2xl border border-input bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-ring"
             />
           </label>
@@ -135,17 +116,12 @@ function Landing() {
             <span className="text-xs font-medium text-muted-foreground">{tr.password}</span>
             <div className="relative">
               <input
-                type={showPassword ? "text" : "password"}
-                required
-                minLength={6}
-                value={password}
+                type={showPassword ? "text" : "password"} required minLength={6} value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-2xl border border-input bg-background px-4 py-2.5 pe-12 text-sm text-foreground outline-none focus:border-ring"
               />
               <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? tr.hidePassword : tr.showPassword}
+                type="button" onClick={() => setShowPassword((v) => !v)}
                 className="absolute end-2 top-1/2 -translate-y-1/2 rounded-xl p-2 text-muted-foreground transition-colors hover:text-foreground"
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -160,13 +136,9 @@ function Landing() {
                 <div className="flex gap-2">
                   {(["male", "female"] as const).map((g) => (
                     <button
-                      key={g}
-                      type="button"
-                      onClick={() => setGender(g)}
+                      key={g} type="button" onClick={() => setGender(g)}
                       className={`flex-1 rounded-2xl border px-3 py-2.5 text-sm font-medium transition-colors ${
-                        gender === g
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border bg-background text-foreground hover:bg-muted"
+                        gender === g ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-foreground hover:bg-muted"
                       }`}
                     >
                       {g === "male" ? tr.male : tr.female}
@@ -178,14 +150,11 @@ function Landing() {
               <label className="block space-y-1.5">
                 <span className="text-xs font-medium text-muted-foreground">{tr.language}</span>
                 <select
-                  value={lang}
-                  onChange={(e) => setLang(e.target.value as LangCode)}
+                  value={lang} onChange={(e) => setLang(e.target.value as LangCode)}
                   className="w-full rounded-2xl border border-input bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-ring"
                 >
                   {LANGUAGES.map((l) => (
-                    <option key={l.code} value={l.code}>
-                      {l.label}
-                    </option>
+                    <option key={l.code} value={l.code}>{l.label}</option>
                   ))}
                 </select>
               </label>
@@ -196,8 +165,7 @@ function Landing() {
           {info && <p className="text-sm text-muted-foreground">{info}</p>}
 
           <button
-            type="submit"
-            disabled={busy}
+            type="submit" disabled={busy}
             className="w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
           >
             {mode === "up" ? tr.createAccount : tr.signIn}
@@ -210,9 +178,7 @@ function Landing() {
           </div>
 
           <button
-            type="button"
-            onClick={google}
-            disabled={busy}
+            type="button" onClick={google} disabled={busy}
             className="flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-background px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-60"
           >
             <span className="font-bold text-primary">G</span>

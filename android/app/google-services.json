@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "335945769360",
+    "project_id": "chatora-app-2f06d",
+    "storage_bucket": "chatora-app-2f06d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:335945769360:android:0ba43c4dfea9324a585315",
+        "android_client_info": {
+          "package_name": "com.chatora.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCxDofx0rvrZezhBhc4XYHWjXqEybNJUsQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
