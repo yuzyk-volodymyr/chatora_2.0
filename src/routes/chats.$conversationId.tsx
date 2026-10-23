@@ -62,10 +62,11 @@ function Conversation() {
   const [sending, setSending] = useState(false);
   const [customName, setCustomName] = useState<string | null>(null);
   
-  // Состояния для меню и редактирования
+  // Состояния для меню, редактирования и удаления
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -78,7 +79,7 @@ function Conversation() {
   const tr = t(myLang);
   const call = useCall();
 
-  // 1. Загрузка данных и отметка о прочтении
+  // 1. Загрузка данных
   useEffect(() => {
     if (!user) return;
     let active = true;
@@ -109,7 +110,7 @@ function Conversation() {
     return () => { active = false; };
   }, [conversationId, user]);
 
-  // 2. Подписка на изменения (INSERT, UPDATE, DELETE)
+  // 2. Подписка на Realtime
   useEffect(() => {
     const channel = supabase
       .channel(`messages-${conversationId}`)
@@ -173,10 +174,17 @@ function Conversation() {
     setSending(false);
   }
 
-  // УДАЛЕНИЕ С ОТЛАДКОЙ
-  async function handleDelete(id: string) {
-    if (!window.confirm("Вы уверены, что хотите удалить это сообщение?")) return;
+  // Удаление (открывает модальное окно)
+  function confirmDelete(id: string) {
     setActiveMenuId(null);
+    setDeleteConfirmId(id);
+  }
+
+  // Само удаление (после подтверждения)
+  async function executeDelete() {
+    if (!deleteConfirmId) return;
+    const id = deleteConfirmId;
+    setDeleteConfirmId(null);
     
     const { error } = await supabase.from("messages").delete().eq("id", id);
     
@@ -188,7 +196,7 @@ function Conversation() {
     }
   }
 
-  // РЕДАКТИРОВАНИЕ С ОТЛАДКОЙ
+  // Редактирование
   async function handleSaveEdit() {
     if (!editText.trim() || !editingId) return;
     const newBody = editText.trim();
@@ -321,7 +329,7 @@ function Conversation() {
                           <Pencil className="h-3 w-3" /> Изменить
                         </button>
                       )}
-                      <button onClick={() => handleDelete(m.id)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-red-400 hover:bg-zinc-700">
+                      <button onClick={() => confirmDelete(m.id)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-red-400 hover:bg-zinc-700">
                         <Trash2 className="h-3 w-3" /> Удалить
                       </button>
                     </div>
@@ -390,6 +398,32 @@ function Conversation() {
           </button>
         </form>
       </div>
+
+      {/* Кастомное окно подтверждения удаления */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-3xl border border-zinc-800 bg-[#1f1f22] p-6 shadow-2xl">
+            <h3 className="mb-2 text-lg font-semibold text-white">Удалить сообщение?</h3>
+            <p className="mb-6 text-sm text-zinc-400">
+              Это действие нельзя отменить. Сообщение исчезнет у вас и у собеседника.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                className="rounded-xl px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={executeDelete}
+                className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              >
+                Удалить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
