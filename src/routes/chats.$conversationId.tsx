@@ -141,16 +141,15 @@ function Conversation() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
-  // --- ЛОГИКА ДОЛГОГО НАЖАТИЯ ---
+  // Логика долгого нажатия
   const startPress = (id: string, mine: boolean) => {
-    if (!mine) return; // Меню только для своих сообщений
+    if (!mine) return;
     longPressTimer.current = setTimeout(() => {
       setActiveMenuId(id);
-      // Легкая вибрация, если поддерживается
       if (window.navigator && window.navigator.vibrate) {
         window.navigator.vibrate(50);
       }
-    }, 500); // 500 мс
+    }, 500);
   };
 
   const endPress = () => {
@@ -158,7 +157,6 @@ function Conversation() {
       clearTimeout(longPressTimer.current);
     }
   };
-  // -----------------------------
 
   // Отправка текста
   async function send(e: React.FormEvent) {
@@ -175,19 +173,35 @@ function Conversation() {
     setSending(false);
   }
 
+  // УДАЛЕНИЕ С ОТЛАДКОЙ
   async function handleDelete(id: string) {
     if (!window.confirm("Вы уверены, что хотите удалить это сообщение?")) return;
     setActiveMenuId(null);
-    await supabase.from("messages").delete().eq("id", id);
-    setMessages((prev) => prev.filter(m => m.id !== id));
+    
+    const { error } = await supabase.from("messages").delete().eq("id", id);
+    
+    if (error) {
+      await supabase.from('debug_logs').insert({ message: `❌ ОШИБКА УДАЛЕНИЯ: ${error.message}` });
+      alert("Не удалось удалить: " + error.message);
+    } else {
+      setMessages((prev) => prev.filter(m => m.id !== id));
+    }
   }
 
+  // РЕДАКТИРОВАНИЕ С ОТЛАДКОЙ
   async function handleSaveEdit() {
     if (!editText.trim() || !editingId) return;
     const newBody = editText.trim();
-    setEditingId(null);
-    await supabase.from("messages").update({ body: newBody, is_edited: true }).eq("id", editingId);
-    setMessages(prev => prev.map(m => m.id === editingId ? { ...m, body: newBody, is_edited: true } : m));
+    
+    const { error } = await supabase.from("messages").update({ body: newBody, is_edited: true }).eq("id", editingId);
+    
+    if (error) {
+      await supabase.from('debug_logs').insert({ message: `❌ ОШИБКА РЕДАКТИРОВАНИЯ: ${error.message}` });
+      alert("Не удалось изменить: " + error.message);
+    } else {
+      setEditingId(null);
+      setMessages(prev => prev.map(m => m.id === editingId ? { ...m, body: newBody, is_edited: true } : m));
+    }
   }
 
   // Запись голоса
@@ -226,12 +240,9 @@ function Conversation() {
   return (
     <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0a0a0a]">
       
-      {/* Невидимый оверлей для закрытия меню при клике в любое место */}
+      {/* Невидимый оверлей для закрытия меню */}
       {activeMenuId && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setActiveMenuId(null)}
-        />
+        <div className="fixed inset-0 z-40" onClick={() => setActiveMenuId(null)} />
       )}
 
       <style>{`
@@ -288,9 +299,8 @@ function Conversation() {
                 </div>
               )}
               <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-
-                {/* Пузырь сообщения с обработчиками нажатий */}
-                <div
+                
+                <div 
                   onTouchStart={() => startPress(m.id, mine)}
                   onTouchEnd={endPress}
                   onTouchMove={endPress}
@@ -299,10 +309,10 @@ function Conversation() {
                   onMouseLeave={endPress}
                   className={`relative select-none max-w-[80%] rounded-3xl px-4 py-2.5 text-[15px] shadow-sm transition-transform active:scale-[0.98] ${mine ? "bg-gradient-to-tr from-[#7c3aed] to-[#a855f7] text-white rounded-br-sm" : "bg-[#1f1f22] text-zinc-100 rounded-bl-sm border border-zinc-800/50"}`}
                 >
-
-                  {/* Выпадающее меню (Редактировать/Удалить) - теперь появляется при долгом нажатии */}
+                  
+                  {/* Выпадающее меню */}
                   {activeMenuId === m.id && (
-                    <div
+                    <div 
                       className="absolute right-0 top-full mt-1 z-50 w-32 rounded-xl border border-zinc-700 bg-zinc-800 p-1 shadow-xl"
                       onClick={(e) => e.stopPropagation()}
                     >
