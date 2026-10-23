@@ -72,6 +72,9 @@ function Conversation() {
   const [recording, setRecording] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   
+  // Таймер для долгого нажатия
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null);
+
   const tr = t(myLang);
   const call = useCall();
 
@@ -138,6 +141,25 @@ function Conversation() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
+  // --- ЛОГИКА ДОЛГОГО НАЖАТИЯ ---
+  const startPress = (id: string, mine: boolean) => {
+    if (!mine) return; // Меню только для своих сообщений
+    longPressTimer.current = setTimeout(() => {
+      setActiveMenuId(id);
+      // Легкая вибрация, если поддерживается
+      if (window.navigator && window.navigator.vibrate) {
+        window.navigator.vibrate(50);
+      }
+    }, 500); // 500 мс
+  };
+
+  const endPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+    }
+  };
+  // -----------------------------
+
   // Отправка текста
   async function send(e: React.FormEvent) {
     e.preventDefault();
@@ -153,7 +175,6 @@ function Conversation() {
     setSending(false);
   }
 
-  // Удаление сообщения
   async function handleDelete(id: string) {
     if (!window.confirm("Вы уверены, что хотите удалить это сообщение?")) return;
     setActiveMenuId(null);
@@ -161,7 +182,6 @@ function Conversation() {
     setMessages((prev) => prev.filter(m => m.id !== id));
   }
 
-  // Сохранение редактирования
   async function handleSaveEdit() {
     if (!editText.trim() || !editingId) return;
     const newBody = editText.trim();
@@ -206,6 +226,14 @@ function Conversation() {
   return (
     <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0a0a0a]">
       
+      {/* Невидимый оверлей для закрытия меню при клике в любое место */}
+      {activeMenuId && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setActiveMenuId(null)}
+        />
+      )}
+
       <style>{`
         @keyframes chat-bg-sweep {
           0% { background-position: 200% 0; }
@@ -260,24 +288,29 @@ function Conversation() {
                 </div>
               )}
               <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                <div className={`relative max-w-[80%] rounded-3xl px-4 py-2.5 text-[15px] shadow-sm ${mine ? "bg-gradient-to-tr from-[#7c3aed] to-[#a855f7] text-white rounded-br-sm" : "bg-[#1f1f22] text-zinc-100 rounded-bl-sm border border-zinc-800/50"}`}>
-                  
-                  {/* Кнопка меню для своих сообщений (ТЕПЕРЬ ВИДНА НА ТЕЛЕФОНАХ) */}
-                  {mine && !editingId && (
-                    <button 
-                      onClick={() => setActiveMenuId(activeMenuId === m.id ? null : m.id)}
-                      className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 text-zinc-400 shadow-md hover:text-white"
-                    >
-                      <MoreVertical className="h-3 w-3" />
-                    </button>
-                  )}
 
-                  {/* Выпадающее меню (Редактировать/Удалить) */}
+                {/* Пузырь сообщения с обработчиками нажатий */}
+                <div
+                  onTouchStart={() => startPress(m.id, mine)}
+                  onTouchEnd={endPress}
+                  onTouchMove={endPress}
+                  onMouseDown={() => startPress(m.id, mine)}
+                  onMouseUp={endPress}
+                  onMouseLeave={endPress}
+                  className={`relative select-none max-w-[80%] rounded-3xl px-4 py-2.5 text-[15px] shadow-sm transition-transform active:scale-[0.98] ${mine ? "bg-gradient-to-tr from-[#7c3aed] to-[#a855f7] text-white rounded-br-sm" : "bg-[#1f1f22] text-zinc-100 rounded-bl-sm border border-zinc-800/50"}`}
+                >
+
+                  {/* Выпадающее меню (Редактировать/Удалить) - теперь появляется при долгом нажатии */}
                   {activeMenuId === m.id && (
-                    <div className="absolute right-0 top-8 z-50 w-32 rounded-xl border border-zinc-700 bg-zinc-800 p-1 shadow-xl">
-                      <button onClick={() => { setEditingId(m.id); setEditText(m.body || ""); setActiveMenuId(null); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-white hover:bg-zinc-700">
-                        <Pencil className="h-3 w-3" /> Изменить
-                      </button>
+                    <div
+                      className="absolute right-0 top-full mt-1 z-50 w-32 rounded-xl border border-zinc-700 bg-zinc-800 p-1 shadow-xl"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {m.body && (
+                        <button onClick={() => { setEditingId(m.id); setEditText(m.body || ""); setActiveMenuId(null); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-white hover:bg-zinc-700">
+                          <Pencil className="h-3 w-3" /> Изменить
+                        </button>
+                      )}
                       <button onClick={() => handleDelete(m.id)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-red-400 hover:bg-zinc-700">
                         <Trash2 className="h-3 w-3" /> Удалить
                       </button>
@@ -313,6 +346,7 @@ function Conversation() {
                     </p>
                   </div>
                 </div>
+
               </div>
             </div>
           );

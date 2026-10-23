@@ -124,7 +124,7 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
-  // --- ДОБАВЛЕННЫЙ КОД ДЛЯ PUSH-УВЕДОМЛЕНИЙ ---
+  // --- НАСТРОЙКА PUSH-УВЕДОМЛЕНИЙ (ОСТАВЛЯЕМ БЕЗ ИЗМЕНЕНИЙ) ---
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
 
@@ -151,7 +151,6 @@ function RootComponent() {
 
     initPush();
   }, []);
-  // ----------------------------------------------
 
   return (
     <QueryClientProvider client={queryClient}>
