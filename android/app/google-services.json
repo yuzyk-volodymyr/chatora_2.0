@@ -12,7 +12,16 @@
           "package_name": "com.chatora.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "335945769360-cnhr1q473evgtb3r2edl4kur6bdlc17o.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.chatora.app",
+            "certificate_hash": "deb2713e0390db3ff529c985d33d46ad0c786a09"
+          }
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCxDofx0rvrZezhBhc4XYHWjXqEybNJUsQ"
