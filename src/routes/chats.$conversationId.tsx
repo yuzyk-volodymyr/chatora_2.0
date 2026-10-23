@@ -62,7 +62,6 @@ function Conversation() {
   const [sending, setSending] = useState(false);
   const [customName, setCustomName] = useState<string | null>(null);
   
-  // Состояния для меню, редактирования и удаления
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
@@ -73,13 +72,11 @@ function Conversation() {
   const [recording, setRecording] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   
-  // Таймер для долгого нажатия
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
 
   const tr = t(myLang);
   const call = useCall();
 
-  // 1. Загрузка данных
   useEffect(() => {
     if (!user) return;
     let active = true;
@@ -110,7 +107,6 @@ function Conversation() {
     return () => { active = false; };
   }, [conversationId, user]);
 
-  // 2. Подписка на Realtime
   useEffect(() => {
     const channel = supabase
       .channel(`messages-${conversationId}`)
@@ -142,7 +138,6 @@ function Conversation() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
-  // Логика долгого нажатия
   const startPress = (id: string, mine: boolean) => {
     if (!mine) return;
     longPressTimer.current = setTimeout(() => {
@@ -159,7 +154,6 @@ function Conversation() {
     }
   };
 
-  // Отправка текста
   async function send(e: React.FormEvent) {
     e.preventDefault();
     const body = text.trim();
@@ -174,45 +168,85 @@ function Conversation() {
     setSending(false);
   }
 
-  // Удаление (открывает модальное окно)
   function confirmDelete(id: string) {
     setActiveMenuId(null);
     setDeleteConfirmId(id);
   }
 
-  // Само удаление (после подтверждения)
+  // --- УДАЛЕНИЕ С ОТЛАДКОЙ ---
   async function executeDelete() {
-    if (!deleteConfirmId) return;
-    const id = deleteConfirmId;
-    setDeleteConfirmId(null);
-    
-    const { error } = await supabase.from("messages").delete().eq("id", id);
-    
-    if (error) {
-      await supabase.from('debug_logs').insert({ message: `❌ ОШИБКА УДАЛЕНИЯ: ${error.message}` });
-      alert("Не удалось удалить: " + error.message);
-    } else {
-      setMessages((prev) => prev.filter(m => m.id !== id));
+    try {
+      if (!deleteConfirmId) {
+        alert("Ошибка: ID сообщения для удаления пуст (deleteConfirmId = null)");
+        return;
+      }
+      
+      const id = deleteConfirmId;
+      setDeleteConfirmId(null);
+      
+      alert("1. Попытка удалить ID: " + id);
+
+      const { error, count } = await supabase
+        .from("messages")
+        .delete({ count: "exact" })
+        .eq("id", id)
+        .select("id");
+        
+      alert("2. Ответ базы: count=" + count + ", error=" + (error ? error.message : "нет"));
+
+      if (error) {
+        await supabase.from('debug_logs').insert({ message: `❌ ОШИБКА УДАЛЕНИЯ: ${error.message}` });
+        alert("Не удалось удалить: " + error.message);
+      } else if (count === 0) {
+        await supabase.from('debug_logs').insert({ message: `❌ RLS БЛОКИРОВКА: Сообщение не найдено или нет прав` });
+        alert("Ошибка: База данных не разрешила удалить сообщение (возможно, нет прав).");
+      } else {
+        setMessages((prev) => prev.filter(m => m.id !== id));
+        alert("✅ Успешно удалено!");
+      }
+    } catch (e: any) {
+      alert("❌ КРИТИЧЕСКАЯ ОШИБКА JS: " + e.message);
+      await supabase.from('debug_logs').insert({ message: `❌ JS ОШИБКА: ${e.message}` });
     }
   }
 
-  // Редактирование
+  // --- РЕДАКТИРОВАНИЕ С ОТЛАДКОЙ ---
   async function handleSaveEdit() {
-    if (!editText.trim() || !editingId) return;
-    const newBody = editText.trim();
-    
-    const { error } = await supabase.from("messages").update({ body: newBody, is_edited: true }).eq("id", editingId);
-    
-    if (error) {
-      await supabase.from('debug_logs').insert({ message: `❌ ОШИБКА РЕДАКТИРОВАНИЯ: ${error.message}` });
-      alert("Не удалось изменить: " + error.message);
-    } else {
-      setEditingId(null);
-      setMessages(prev => prev.map(m => m.id === editingId ? { ...m, body: newBody, is_edited: true } : m));
+    try {
+      if (!editText.trim() || !editingId) {
+        alert("Ошибка: пустой текст или нет ID для редактирования");
+        return;
+      }
+      
+      const newBody = editText.trim();
+      const id = editingId;
+      
+      alert("1. Попытка изменить сообщение ID: " + id);
+
+      const { error, count } = await supabase
+        .from("messages")
+        .update({ body: newBody, is_edited: true }, { count: "exact" })
+        .eq("id", id)
+        .select("id");
+      
+      alert("2. Ответ базы: count=" + count + ", error=" + (error ? error.message : "нет"));
+
+      if (error) {
+        await supabase.from('debug_logs').insert({ message: `❌ ОШИБКА РЕДАКТИРОВАНИЯ: ${error.message}` });
+        alert("Не удалось изменить: " + error.message);
+      } else if (count === 0) {
+        await supabase.from('debug_logs').insert({ message: `❌ RLS БЛОКИРОВКА РЕДАКТИРОВАНИЯ: Нет прав` });
+        alert("Ошибка: База данных не разрешила изменить сообщение.");
+      } else {
+        setEditingId(null);
+        setMessages(prev => prev.map(m => m.id === id ? { ...m, body: newBody, is_edited: true } : m));
+        alert("✅ Успешно изменено!");
+      }
+    } catch (e: any) {
+      alert("❌ КРИТИЧЕСКАЯ ОШИБКА JS: " + e.message);
     }
   }
 
-  // Запись голоса
   async function toggleRecord() {
     if (recording) {
       recorderRef.current?.stop();
@@ -248,7 +282,6 @@ function Conversation() {
   return (
     <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0a0a0a]">
       
-      {/* Невидимый оверлей для закрытия меню */}
       {activeMenuId && (
         <div className="fixed inset-0 z-40" onClick={() => setActiveMenuId(null)} />
       )}
@@ -318,7 +351,6 @@ function Conversation() {
                   className={`relative select-none max-w-[80%] rounded-3xl px-4 py-2.5 text-[15px] shadow-sm transition-transform active:scale-[0.98] ${mine ? "bg-gradient-to-tr from-[#7c3aed] to-[#a855f7] text-white rounded-br-sm" : "bg-[#1f1f22] text-zinc-100 rounded-bl-sm border border-zinc-800/50"}`}
                 >
                   
-                  {/* Выпадающее меню */}
                   {activeMenuId === m.id && (
                     <div 
                       className="absolute right-0 top-full mt-1 z-50 w-32 rounded-xl border border-zinc-700 bg-zinc-800 p-1 shadow-xl"
@@ -335,7 +367,6 @@ function Conversation() {
                     </div>
                   )}
 
-                  {/* Режим редактирования */}
                   {editingId === m.id ? (
                     <div className="flex flex-col gap-2">
                       <input 
@@ -372,7 +403,6 @@ function Conversation() {
         <div ref={bottomRef} className="h-2" />
       </div>
 
-      {/* Панель ввода */}
       <div className="relative z-10 w-full shrink-0 border-t border-zinc-800/50 bg-[#0a0a0a] px-2 py-3 pb-safe">
         {micError && <p className="mb-2 px-2 text-xs text-red-500">{micError}</p>}
         <form onSubmit={send} className="flex w-full items-center gap-1.5">
@@ -399,7 +429,6 @@ function Conversation() {
         </form>
       </div>
 
-      {/* Кастомное окно подтверждения удаления */}
       {deleteConfirmId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-3xl border border-zinc-800 bg-[#1f1f22] p-6 shadow-2xl">
