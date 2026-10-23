@@ -100,6 +100,18 @@ export type Database = {
         }
         Relationships: []
       }
+      debug_logs: {
+        Row: {
+          message: string
+        }
+        Insert: {
+          message: string
+        }
+        Update: {
+          message?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

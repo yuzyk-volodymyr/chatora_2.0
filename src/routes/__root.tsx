@@ -9,12 +9,21 @@ import {
   type ErrorComponentProps,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
-import { PushNotifications } from '@capacitor/push-notifications';
-import { Capacitor } from '@capacitor/core';
-import { supabase } from '@/integrations/supabase/client';
+import { PushNotifications } from "@capacitor/push-notifications";
+import { Capacitor } from "@capacitor/core";
+import { supabase } from "@/integrations/supabase/client";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+
+const logPushDebug = async (message: string) => {
+  try {
+    const { error } = await supabase.from("debug_logs").insert({ message });
+    if (error) console.error("Не удалось записать лог Push-уведомлений:", error);
+  } catch (e) {
+    console.error("Не удалось записать лог Push-уведомлений:", e);
+  }
+};
 
 function NotFoundComponent() {
   return (
@@ -84,10 +93,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Chatora" },
-      { name: "description", content: "Anonymous one-to-one messenger with voice messages and calls." },
+      {
+        name: "description",
+        content: "Anonymous one-to-one messenger with voice messages and calls.",
+      },
       { name: "author", content: "Chatora" },
       { property: "og:title", content: "Chatora" },
-      { property: "og:description", content: "Anonymous one-to-one messenger with voice messages and calls." },
+      {
+        property: "og:description",
+        content: "Anonymous one-to-one messenger with voice messages and calls.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -124,32 +139,60 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
-  // --- НАСТРОЙКА PUSH-УВЕДОМЛЕНИЙ (ОСТАВЛЯЕМ БЕЗ ИЗМЕНЕНИЙ) ---
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
 
-    const initPush = async () => {
-      let perm = await PushNotifications.requestPermissions();
-      if (perm.receive === 'granted') {
-        await PushNotifications.register();
+    const setupPush = async () => {
+      await logPushDebug("Старт настройки Push-уведомлений");
+
+      // 1. Разрешения
+      let perm = await PushNotifications.checkPermissions();
+      if (perm.receive === "prompt") {
+        perm = await PushNotifications.requestPermissions();
       }
+
+      if (perm.receive !== "granted") {
+        await logPushDebug("Пользователь не предоставил разрешение на уведомления");
+        return;
+      }
+      await logPushDebug("Разрешение на уведомления получено");
+
+      // 2. Слушатели
+      PushNotifications.addListener("registration", async (token) => {
+        await logPushDebug("Токен push-уведомлений получен");
+
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user) {
+          const { error } = await supabase
+            .from("device_tokens")
+            .upsert({ user_id: user.id, token: token.value }, { onConflict: "token" });
+          if (error) {
+            console.error("Не удалось сохранить токен push-уведомлений:", error);
+            await logPushDebug("Не удалось сохранить токен push-уведомлений");
+          } else {
+            await logPushDebug("Токен push-уведомлений сохранен");
+          }
+        } else {
+          await logPushDebug("Токен получен, но пользователь не авторизован");
+        }
+      });
+
+      PushNotifications.addListener("registrationError", async (error) => {
+        console.error("Ошибка регистрации Push-уведомлений:", error);
+        await logPushDebug("Ошибка регистрации Push-уведомлений");
+      });
+
+      // 3. Регистрация
+      await logPushDebug("Вызов регистрации Push-уведомлений");
+      await PushNotifications.register();
     };
 
-    PushNotifications.addListener('registration', async (token) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        await supabase.from('device_tokens').upsert(
-          { user_id: user.id, token: token.value },
-          { onConflict: 'token' }
-        );
-      }
+    setupPush().catch((error: unknown) => {
+      console.error("Критическая ошибка настройки Push-уведомлений:", error);
+      void logPushDebug("Критическая ошибка настройки Push-уведомлений");
     });
-
-    PushNotifications.addListener('registrationError', (error) => {
-      console.error('Ошибка пуш-уведомлений:', error);
-    });
-
-    initPush();
   }, []);
 
   return (
