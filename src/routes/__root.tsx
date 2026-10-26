@@ -16,12 +16,13 @@ import { supabase } from "@/integrations/supabase/client";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
-const logPushDebug = async (message: string) => {
+// Функция для отправки логов в базу данных
+const logToSupabase = async (message: string) => {
   try {
     const { error } = await supabase.from("debug_logs").insert({ message });
-    if (error) console.error("Не удалось записать лог Push-уведомлений:", error);
+    if (error) console.error("Не удалось записать лог в Supabase:", error);
   } catch (e) {
-    console.error("Не удалось записать лог Push-уведомлений:", e);
+    console.error("Не удалось записать лог в Supabase", e);
   }
 };
 
@@ -143,24 +144,21 @@ function RootComponent() {
     if (!Capacitor.isNativePlatform()) return;
 
     const setupPush = async () => {
-      await logPushDebug("Старт настройки Push-уведомлений");
+      await logToSupabase("🚀 Старт настройки Push-уведомлений");
 
-      // 1. Разрешения
       let perm = await PushNotifications.checkPermissions();
       if (perm.receive === "prompt") {
         perm = await PushNotifications.requestPermissions();
       }
 
       if (perm.receive !== "granted") {
-        await logPushDebug("Пользователь не предоставил разрешение на уведомления");
+        await logToSupabase("❌ ОШИБКА: Пользователь не дал разрешение на уведомления");
         return;
       }
-      await logPushDebug("Разрешение на уведомления получено");
+      await logToSupabase("✅ Разрешение на уведомления получено");
 
-      // 2. Слушатели
       PushNotifications.addListener("registration", async (token) => {
-        await logPushDebug("Токен push-уведомлений получен");
-
+        await logToSupabase("Токен push-уведомлений получен");
         const {
           data: { user },
         } = await supabase.auth.getUser();
@@ -170,34 +168,32 @@ function RootComponent() {
             .upsert({ user_id: user.id, token: token.value }, { onConflict: "token" });
           if (error) {
             console.error("Не удалось сохранить токен push-уведомлений:", error);
-            await logPushDebug("Не удалось сохранить токен push-уведомлений");
+            await logToSupabase("Не удалось сохранить токен push-уведомлений");
           } else {
-            await logPushDebug("Токен push-уведомлений сохранен");
+            await logToSupabase("Токен push-уведомлений сохранен");
           }
         } else {
-          await logPushDebug("Токен получен, но пользователь не авторизован");
+          await logToSupabase(`❌ Токен получен, но нет авторизации`);
         }
       });
 
       PushNotifications.addListener("registrationError", async (error) => {
-        console.error("Ошибка регистрации Push-уведомлений:", error);
-        await logPushDebug("Ошибка регистрации Push-уведомлений");
+        // Выводим точную причину ошибки
+        await logToSupabase(`❌ ОШИБКА FIREBASE: ${JSON.stringify(error)}`);
       });
 
-      // 3. Регистрация
-      await logPushDebug("Вызов регистрации Push-уведомлений");
+      await logToSupabase("🚀 Вызов PushNotifications.register()");
       await PushNotifications.register();
     };
 
     setupPush().catch((error: unknown) => {
-      console.error("Критическая ошибка настройки Push-уведомлений:", error);
-      void logPushDebug("Критическая ошибка настройки Push-уведомлений");
+      console.error("Ошибка настройки Push-уведомлений:", error);
+      void logToSupabase("Ошибка настройки Push-уведомлений");
     });
   }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
     </QueryClientProvider>
   );

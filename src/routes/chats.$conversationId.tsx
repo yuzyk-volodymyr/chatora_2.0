@@ -19,6 +19,15 @@ type Message = {
   is_edited?: boolean;
 };
 
+async function logChatDebug(message: string) {
+  try {
+    const { error } = await supabase.from("debug_logs").insert({ message });
+    if (error) console.error("Не удалось записать лог чата:", error);
+  } catch (error) {
+    console.error("Не удалось записать лог чата:", error);
+  }
+}
+
 function dayKey(iso: string): string {
   const d = new Date(iso);
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -180,59 +189,52 @@ function Conversation() {
     setDeleteConfirmId(id);
   }
 
-  // Само удаление (после подтверждения) с глубокой отладкой
+  // Само удаление (после подтверждения) — ТОЛЬКО ЛОГИ В БАЗУ
   async function executeDelete() {
-    if (!deleteConfirmId) {
-      alert("Ошибка: ID сообщения пуст");
-      return;
-    }
+    if (!deleteConfirmId) return;
     const id = deleteConfirmId;
     setDeleteConfirmId(null);
 
-    alert("1. Пытаемся удалить ID: " + id);
+    await logChatDebug(`Старт удаления сообщения ID: ${id}`);
 
     const { error, count } = await supabase
       .from("messages")
-      .delete()
+      .delete({ count: "exact" })
       .eq("id", id)
-      .select();
+      .select("id");
 
     if (error) {
-      await supabase.from('debug_logs').insert({ message: `❌ ОШИБКА УДАЛЕНИЯ: ${error.message}` });
-      alert("2. Ошибка БД: " + error.message);
+      await logChatDebug(`Ошибка удаления сообщения: ${error.message}`);
     } else if (count === 0) {
-      await supabase.from('debug_logs').insert({ message: `❌ RLS БЛОКИРОВКА: Сообщение не найдено или нет прав` });
-      alert("2. База заблокировала удаление (RLS).");
+      await logChatDebug("Удаление не изменило строки: сообщение не найдено или нет прав");
     } else {
       setMessages((prev) => prev.filter(m => m.id !== id));
-      alert("2. ✅ Успешно удалено!");
+      await logChatDebug(`Сообщение ID ${id} удалено`);
     }
   }
 
-  // Редактирование с отладкой
+  // Редактирование — ТОЛЬКО ЛОГИ В БАЗУ
   async function handleSaveEdit() {
     if (!editText.trim() || !editingId) return;
     const newBody = editText.trim();
     const id = editingId;
 
-    alert("1. Пытаемся изменить ID: " + id);
+    await logChatDebug(`Старт редактирования сообщения ID: ${id}`);
 
     const { error, count } = await supabase
       .from("messages")
-      .update({ body: newBody, is_edited: true })
+      .update({ body: newBody, is_edited: true }, { count: "exact" })
       .eq("id", id)
-      .select();
+      .select("id");
 
     if (error) {
-      await supabase.from('debug_logs').insert({ message: `❌ ОШИБКА РЕДАКТИРОВАНИЯ: ${error.message}` });
-      alert("2. Ошибка БД: " + error.message);
+      await logChatDebug(`Ошибка редактирования сообщения: ${error.message}`);
     } else if (count === 0) {
-      await supabase.from('debug_logs').insert({ message: `❌ RLS БЛОКИРОВКА РЕДАКТИРОВАНИЯ: Нет прав` });
-      alert("2. База заблокировала изменение (RLS).");
+      await logChatDebug("Редактирование не изменило строки: сообщение не найдено или нет прав");
     } else {
       setEditingId(null);
       setMessages(prev => prev.map(m => m.id === id ? { ...m, body: newBody, is_edited: true } : m));
-      alert("2. ✅ Успешно изменено!");
+      await logChatDebug(`Сообщение ID ${id} отредактировано`);
     }
   }
 
