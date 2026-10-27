@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write # Важно для создания релиза
 
 jobs:
   build:
@@ -44,6 +44,12 @@ jobs:
         keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
         storeFile=chatora-release.jks
         EOF
+
+    # --- НОВЫЙ ШАГ ДЛЯ ПОЛУЧЕНИЯ SHA-256 ---
+    - name: Print SHA-256 Fingerprint
+      run: |
+        cd android/app
+        keytool -list -v -keystore chatora-release.jks -alias chatora -storepass ${{ secrets.ANDROID_STORE_PASSWORD }} | grep "SHA256:"
 
     - name: Build Release APK
       run: |
