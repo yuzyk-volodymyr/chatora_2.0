@@ -1,138 +1,42 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  Outlet,
-  Link,
-  createRootRouteWithContext,
-  useRouter,
-  HeadContent,
-  Scripts,
-  type ErrorComponentProps,
-} from "@tanstack/react-router";
+import { Outlet, Link, createRootRouteWithContext, useRouter, HeadContent, Scripts, type ErrorComponentProps } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
-import { PushNotifications } from "@capacitor/push-notifications";
-import { Capacitor } from "@capacitor/core";
-import { supabase } from "@/integrations/supabase/client";
-
+import { Capacitor } from '@capacitor/core';
+import { supabase } from '@/integrations/supabase/client';
+import OneSignal from '@onesignal/capacitor-plugin';
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
-// Функция для отправки логов в базу данных
+// Функция для логов (оставляем для отладки)
 const logToSupabase = async (message: string) => {
-  try {
-    const { error } = await supabase.from("debug_logs").insert({ message });
-    if (error) console.error("Не удалось записать лог в Supabase:", error);
-  } catch (e) {
-    console.error("Не удалось записать лог в Supabase", e);
-  }
+  try { await supabase.from('debug_logs').insert({ message }); } catch (e) {}
 };
-
-function NotFoundComponent() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
-        <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved.
-        </p>
-        <div className="mt-6">
-          <Link
-            to="/"
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Go home
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ErrorComponent({ error, reset }: ErrorComponentProps) {
-  console.error(error);
-  const router = useRouter();
-  useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
-        </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
-          <button
-            onClick={() => {
-              router.invalidate();
-              reset();
-            }}
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Try again
-          </button>
-          <a
-            href="/"
-            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-          >
-            Go home
-          </a>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
     meta: [
       { name: "theme-color", content: "#7c3aed" },
-      { name: "apple-mobile-web-app-capable", content: "yes" },
-      { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Chatora" },
-      {
-        name: "description",
-        content: "Anonymous one-to-one messenger with voice messages and calls.",
-      },
-      { name: "author", content: "Chatora" },
-      { property: "og:title", content: "Chatora" },
-      {
-        property: "og:description",
-        content: "Anonymous one-to-one messenger with voice messages and calls.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
     ],
-    links: [
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
-      { rel: "icon", type: "image/png", href: "/favicon.png" },
-      { rel: "manifest", href: "/manifest.webmanifest" },
-      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
-    ],
+    links: [{ rel: "stylesheet", href: appCss }],
   }),
   shellComponent: RootShell,
   component: RootComponent,
-  notFoundComponent: NotFoundComponent,
+  notFoundComponent: () => <div>404</div>,
   errorComponent: ErrorComponent,
 });
+
+function ErrorComponent({ error, reset }: ErrorComponentProps) {
+  const router = useRouter();
+  return <div>Error: {error.message} <button onClick={reset}>Reset</button></div>;
+}
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        {children}
-        <Scripts />
-      </body>
+      <head><HeadContent /></head>
+      <body>{children}<Scripts /></body>
     </html>
   );
 }
@@ -143,53 +47,25 @@ function RootComponent() {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
 
-    const setupPush = async () => {
-      await logToSupabase("🚀 Старт настройки Push-уведомлений");
+    const initOneSignal = async () => {
+      await logToSupabase("🚀 Старт OneSignal");
 
-      let perm = await PushNotifications.checkPermissions();
-      if (perm.receive === "prompt") {
-        perm = await PushNotifications.requestPermissions();
+      // 1. Инициализация (ВСТАВЬТЕ ВАШ ONESIGNAL APP ID СЮДА)
+      OneSignal.initialize("a61f1a1b-ef1f-4dec-a711-b3dac2221f79");
+
+      // 2. Запрос разрешения
+      const accepted = await OneSignal.Notifications.requestPermission(true);
+      await logToSupabase(`✅ OneSignal Разрешение: ${accepted}`);
+
+      // 3. Привязываем ID пользователя Supabase к устройству в OneSignal
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await OneSignal.login(user.id);
+        await logToSupabase(`🎉 OneSignal: Привязан юзер ${user.id}`);
       }
-
-      if (perm.receive !== "granted") {
-        await logToSupabase("❌ ОШИБКА: Пользователь не дал разрешение на уведомления");
-        return;
-      }
-      await logToSupabase("✅ Разрешение на уведомления получено");
-
-      PushNotifications.addListener("registration", async (token) => {
-        await logToSupabase("Токен push-уведомлений получен");
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (user) {
-          const { error } = await supabase
-            .from("device_tokens")
-            .upsert({ user_id: user.id, token: token.value }, { onConflict: "token" });
-          if (error) {
-            console.error("Не удалось сохранить токен push-уведомлений:", error);
-            await logToSupabase("Не удалось сохранить токен push-уведомлений");
-          } else {
-            await logToSupabase("Токен push-уведомлений сохранен");
-          }
-        } else {
-          await logToSupabase(`❌ Токен получен, но нет авторизации`);
-        }
-      });
-
-      PushNotifications.addListener("registrationError", async (error) => {
-        // Выводим точную причину ошибки
-        await logToSupabase(`❌ ОШИБКА FIREBASE: ${JSON.stringify(error)}`);
-      });
-
-      await logToSupabase("🚀 Вызов PushNotifications.register()");
-      await PushNotifications.register();
     };
 
-    setupPush().catch((error: unknown) => {
-      console.error("Ошибка настройки Push-уведомлений:", error);
-      void logToSupabase("Ошибка настройки Push-уведомлений");
-    });
+    initOneSignal();
   }, []);
 
   return (
