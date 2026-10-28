@@ -5,38 +5,26 @@ import { Capacitor } from '@capacitor/core';
 import { supabase } from '@/integrations/supabase/client';
 import OneSignal from '@onesignal/capacitor-plugin';
 import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
-
-// Функция для логов (оставляем для отладки)
-const logToSupabase = async (message: string) => {
-  try { await supabase.from('debug_logs').insert({ message }); } catch (e) {}
-};
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
     meta: [
-      { name: "theme-color", content: "#7c3aed" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Chatora" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" }
     ],
     links: [{ rel: "stylesheet", href: appCss }],
   }),
   shellComponent: RootShell,
   component: RootComponent,
-  notFoundComponent: () => <div>404</div>,
-  errorComponent: ErrorComponent,
+  notFoundComponent: () => <div className="p-4 text-center text-white">404 Not Found</div>,
+  errorComponent: ({ reset }: ErrorComponentProps) => <div className="p-4 text-center text-white">Error <button onClick={reset} className="text-purple-400">Retry</button></div>,
 });
-
-function ErrorComponent({ error, reset }: ErrorComponentProps) {
-  const router = useRouter();
-  return <div>Error: {error.message} <button onClick={reset}>Reset</button></div>;
-}
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head><HeadContent /></head>
-      <body>{children}<Scripts /></body>
+      <body className="bg-[#0a0a0a] text-white antialiased m-0 p-0 overflow-hidden">{children}<Scripts /></body>
     </html>
   );
 }
@@ -48,23 +36,14 @@ function RootComponent() {
     if (!Capacitor.isNativePlatform()) return;
 
     const initOneSignal = async () => {
-      await logToSupabase("🚀 Старт OneSignal");
-
-      // 1. Инициализация (ВСТАВЬТЕ ВАШ ONESIGNAL APP ID СЮДА)
       OneSignal.initialize("a61f1a1b-ef1f-4dec-a711-b3dac2221f79");
+      await OneSignal.Notifications.requestPermission(true);
 
-      // 2. Запрос разрешения
-      const accepted = await OneSignal.Notifications.requestPermission(true);
-      await logToSupabase(`✅ OneSignal Разрешение: ${accepted}`);
-
-      // 3. Привязываем ID пользователя Supabase к устройству в OneSignal
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         await OneSignal.login(user.id);
-        await logToSupabase(`🎉 OneSignal: Привязан юзер ${user.id}`);
       }
     };
-
     initOneSignal();
   }, []);
 
