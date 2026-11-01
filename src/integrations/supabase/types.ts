@@ -38,6 +38,27 @@ export type Database = {
         }
         Relationships: []
       }
+      contact_aliases: {
+        Row: {
+          alias: string
+          contact_id: string
+          created_at: string
+          owner_id: string
+        }
+        Insert: {
+          alias: string
+          contact_id: string
+          created_at?: string
+          owner_id: string
+        }
+        Update: {
+          alias?: string
+          contact_id?: string
+          created_at?: string
+          owner_id?: string
+        }
+        Relationships: []
+      }
       messages: {
         Row: {
           audio_path: string | null
