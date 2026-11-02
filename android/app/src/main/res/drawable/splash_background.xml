@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Темный фон, чтобы не было белых вспышек -->
     <item android:drawable="@color/colorPrimary" />
+
+    <!-- Картинка по центру (без centerCrop) -->
     <item>
         <bitmap
-            android:gravity="centerCrop"
+            android:gravity="center"
             android:src="@drawable/splash" />
     </item>
 </layer-list>
