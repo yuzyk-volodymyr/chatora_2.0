@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Темный фон на случай, если пропорции экрана не совпадут идеально -->
+    <item android:drawable="@color/colorPrimary" />
+
+    <!-- Наша картинка. Растягиваем её на весь экран (fill) -->
+    <item>
+        <bitmap
+            android:gravity="fill"
+            android:src="@drawable/splash_screen" />
+    </item>
+</layer-list>
