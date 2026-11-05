@@ -9,6 +9,12 @@ export const Route = createFileRoute("/chats/")({
   component: PeopleList,
 });
 
+// Добавляем тип для алиасов
+type ContactAlias = {
+  contact_id: string;
+  alias: string;
+};
+
 function PeopleList() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -25,112 +31,75 @@ function PeopleList() {
     if (!user) return;
 
     // Загрузка профилей
-    supabase
-      .from("profiles")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .then(({ data }) => {
-        const rows = (data ?? []) as Profile[];
-        setPeople(rows);
-        const me = rows.find((p) => p.id === user.id);
-        if (me) setMyLang(me.preferred_language);
-      });
+    supabase.from("profiles").select("*").order("created_at", { ascending: false }).then(({ data }) => {
+      const rows = (data ?? []) as Profile[];
+      setPeople(rows);
+      const me = rows.find(p => p.id === user.id);
+      if (me) setMyLang(me.preferred_language);
+    });
 
-    // Загрузка кастомных имен
-    supabase
-      .from("contact_aliases")
-      .select("contact_id, alias")
-      .eq("owner_id", user.id)
-      .then(({ data }) => {
-        const map: Record<string, string> = {};
-        data?.forEach((a) => (map[a.contact_id] = a.alias));
-        setAliases(map);
+    // Загрузка кастомных имен (алиасов)
+    supabase.from("contact_aliases").select("contact_id, alias").eq("owner_id", user.id).then(({ data }) => {
+      const map: Record<string, string> = {};
+      (data as ContactAlias[])?.forEach(a => {
+        map[a.contact_id] = a.alias;
       });
+      setAliases(map);
+    });
   }, [user]);
 
   async function openChat(otherId: string) {
     if (!user) return;
     setPending(otherId);
-    setSearchError(null);
-    const a = user.id < otherId ? user.id : otherId;
-    const b = user.id < otherId ? otherId : user.id;
+    const pair = [user.id, otherId].sort();
+    const a = pair[0];
+    const b = pair[1];
 
-    try {
-      const { data: existing, error: existingError } = await supabase
-        .from("conversations")
-        .select("id")
-        .eq("user_a", a)
-        .eq("user_b", b)
-        .maybeSingle();
-      if (existingError) throw existingError;
+    const { data: existing } = await supabase.from("conversations").select("id").eq("user_a", a).eq("user_b", b).maybeSingle();
+    let id = existing?.id;
 
-      let id = existing?.id;
-      if (!id) {
-        const { data: created, error: createError } = await supabase
-          .from("conversations")
-          .insert({ user_a: a, user_b: b })
-          .select("id")
-          .single();
-        if (createError) throw createError;
-        id = created.id;
-      }
+    if (!id) {
+      const { data: created } = await supabase.from("conversations").insert({ user_a: a, user_b: b }).select("id").single();
+      id = created?.id;
+    }
 
+    if (id) {
       navigate({ to: "/chats/$conversationId", params: { conversationId: id } });
-    } catch (error) {
-      setSearchError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPending(null);
     }
   }
 
+  // ИСПРАВЛЕННЫЙ ПОИСК (без приставки User#)
   async function search(e: React.FormEvent) {
     e.preventDefault();
-    const digits = code.replace(/\D/g, "");
+    const digits = code.replace(/\D/g, ""); // Оставляем только цифры
     if (!digits) return;
-    setSearchError(null);
-    const { data, error } = await supabase
+
+    // Ищем пользователя по чистому номеру
+    const { data } = await supabase
       .from("profiles")
       .select("id")
-      .eq("user_number", `User#${digits}`)
+      .eq("user_number", digits)
       .maybeSingle();
-    if (error) {
-      setSearchError(error.message);
-      return;
-    }
+
     if (!data || data.id === user?.id) setSearchError(tr.notFound);
     else openChat(data.id);
   }
 
   async function renameContact(e: React.MouseEvent, contactId: string, currentName: string) {
     e.stopPropagation();
-    if (!user) return;
     const newName = window.prompt("Введите новое имя:", currentName);
     if (newName && newName.trim() && newName.trim() !== currentName) {
-      const { error } = await supabase
-        .from("contact_aliases")
-        .upsert({ owner_id: user.id, contact_id: contactId, alias: newName.trim() });
-      if (error) {
-        setSearchError(error.message);
-        return;
-      }
-      setAliases((prev) => ({ ...prev, [contactId]: newName.trim() }));
+      await supabase.from("contact_aliases").upsert({ owner_id: user?.id, contact_id: contactId, alias: newName.trim() });
+      setAliases(prev => ({ ...prev, [contactId]: newName.trim() }));
     }
   }
 
   async function inviteUser() {
-    const me = people.find((p) => p.id === user?.id);
+    const me = people.find(p => p.id === user?.id);
     if (!me) return;
     const url = `${window.location.origin}/?invite=${me.user_number.replace(/\D/g, "")}`;
     if (navigator.share) {
-      try {
-        await navigator.share({ title: tr.appName, text: tr.inviteMessage, url });
-        return;
-      } catch (error) {
-        if (error instanceof Error && error.name !== "AbortError") {
-          setSearchError(error.message);
-          return;
-        }
-      }
+      try { await navigator.share({ title: tr.appName, text: tr.inviteMessage, url }); return; } catch (e) {}
     }
     await navigator.clipboard.writeText(url);
     setInviteCopied(true);
@@ -138,75 +107,34 @@ function PeopleList() {
   }
 
   return (
-    <main className="flex h-[100dvh] w-full flex-col overflow-y-auto bg-[#0a0a0a] px-5 py-6">
+    <main className="flex h-[100dvh] w-full flex-col overflow-y-auto bg-[#0f0914] px-5 py-6">
       <form onSubmit={search} className="mb-4 flex gap-2 w-full">
-        <input
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          placeholder={tr.searchCode}
-          inputMode="numeric"
-          className="min-w-0 flex-1 rounded-2xl border border-zinc-800 bg-[#18181b] px-4 py-2.5 text-sm text-white outline-none"
-        />
-        <button
-          type="submit"
-          className="rounded-2xl bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white"
-        >
-          {tr.find}
-        </button>
+        <input value={code} onChange={(e) => setCode(e.target.value)} placeholder={tr.searchCode} inputMode="numeric" className="min-w-0 flex-1 rounded-2xl border border-zinc-800 bg-[#18181b] px-4 py-2.5 text-sm text-white outline-none" />
+        <button type="submit" className="rounded-2xl bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white">{tr.find}</button>
       </form>
-      {searchError && (
-        <p role="alert" className="mb-4 text-sm text-red-400">
-          {searchError}
-        </p>
-      )}
 
-      <button
-        onClick={inviteUser}
-        className="mb-6 flex w-full items-center justify-center gap-2 rounded-2xl border border-zinc-800 py-3 text-sm text-zinc-300"
-      >
-        {inviteCopied ? (
-          <Check className="h-4 w-4 text-green-500" />
-        ) : (
-          <UserPlus className="h-4 w-4" />
-        )}
+      <button onClick={inviteUser} className="mb-6 flex w-full items-center justify-center gap-2 rounded-2xl border border-zinc-800 py-3 text-sm text-zinc-300">
+        {inviteCopied ? <Check className="h-4 w-4 text-green-500" /> : <UserPlus className="h-4 w-4" />}
         {inviteCopied ? "Скопировано!" : tr.invite}
       </button>
 
-      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500">
-        {tr.chats}
-      </h2>
+      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500">{tr.chats}</h2>
       <ul className="space-y-2 pb-10">
-        {people
-          .filter((p) => p.id !== user?.id)
-          .map((p) => {
-            const displayName = aliases[p.id] || p.user_number;
-            return (
-              <li key={p.id}>
-                <div
-                  onClick={() => !pending && openChat(p.id)}
-                  className="flex w-full items-center gap-3 rounded-3xl border border-zinc-800/50 bg-[#1f1f22] px-4 py-3 cursor-pointer hover:bg-zinc-800/80"
-                >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-800 text-sm font-bold text-purple-400">
-                    {displayName.charAt(0).toUpperCase()}
-                  </span>
-                  <span className="flex-1 min-w-0">
-                    <span className="block truncate text-sm font-medium text-white">
-                      {displayName}
-                    </span>
-                    {aliases[p.id] && (
-                      <span className="block text-xs text-zinc-500 truncate">{p.user_number}</span>
-                    )}
-                  </span>
-                  <button
-                    onClick={(e) => renameContact(e, p.id, displayName)}
-                    className="p-2 text-zinc-500 hover:text-white"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                </div>
-              </li>
-            );
-          })}
+        {people.filter(p => p.id !== user?.id).map(p => {
+          const displayName = aliases[p.id] || p.user_number;
+          return (
+            <li key={p.id}>
+              <div onClick={() => !pending && openChat(p.id)} className="flex w-full items-center gap-3 rounded-3xl border border-zinc-800/50 bg-[#1f1f22] px-4 py-3 cursor-pointer hover:bg-zinc-800/80">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-800 text-sm font-bold text-purple-400">{displayName.charAt(0).toUpperCase()}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block truncate text-sm font-medium text-white">{displayName}</span>
+                  {aliases[p.id] && <span className="block text-xs text-zinc-500 truncate">{p.user_number}</span>}
+                </span>
+                <button onClick={(e) => renameContact(e, p.id, displayName)} className="p-2 text-zinc-500 hover:text-white"><Pencil className="h-4 w-4" /></button>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </main>
   );

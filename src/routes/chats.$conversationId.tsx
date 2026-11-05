@@ -4,7 +4,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type Profile } from "@/hooks/useAuth";
 import { t } from "@/lib/i18n";
 import { useCall } from "@/lib/call";
-import { Phone, Paperclip, Mic, Square, Pencil, Trash2, X, Navigation, Play, Pause } from "lucide-react";
+import { Plugins } from '@capacitor/core'; // Для вызова нативного плагина
+import { Phone, Paperclip, Mic, Square, Pencil, Trash2, X, Navigation, Play, Pause, PhoneOutgoing, PhoneMissed } from "lucide-react";
+
+const { AudioControl } = Plugins; // Наш нативный плагин
 
 export const Route = createFileRoute("/chats/$conversationId")({ component: Conversation });
 
@@ -84,6 +87,7 @@ function Conversation() {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [other, setOther] = useState<Profile | null>(null);
+  const [customName, setCustomName] = useState<string | null>(null);
   const [myLang, setMyLang] = useState<string>("ru");
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -119,6 +123,9 @@ function Conversation() {
       setOther(rows.find((p) => p.id === otherId) ?? null);
       if (rows.find((p) => p.id === user.id)) setMyLang(rows.find((p) => p.id === user.id)!.preferred_language);
       
+      const { data: aliasData } = await supabase.from("contact_aliases").select("alias").eq("owner_id", user.id).eq("contact_id", otherId).maybeSingle();
+      if (aliasData) setCustomName(aliasData.alias);
+
       const { data: msgs } = await supabase.from("messages").select("*").eq("conversation_id", conversationId).order("created_at", { ascending: true });
       setMessages((msgs ?? []) as Message[]);
     })();
@@ -158,9 +165,29 @@ function Conversation() {
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
   };
 
-  const handleStartCall = () => {
+  // --- ЗВОНОК С ЛОГИРОВАНИЕМ И ВКЛЮЧЕНИЕМ ДИНАМИКА ---
+  const handleStartCall = async () => {
     if (!other || !user) return;
+
+    // 1. Принудительно включаем громкую связь через нативный плагин
+    try {
+      await AudioControl.enableSpeaker();
+    } catch (e) {
+      console.warn("Не удалось включить динамик", e);
+    }
+
+    // 2. Записываем исходящий звонок в базу
+    await supabase.from("messages").insert({
+      conversation_id: conversationId,
+      sender_id: user.id,
+      body: "Исходящий звонок",
+      message_type: "outgoing_call",
+    });
+
+    // 3. Запускаем сам звонок
     call.startCall(other.id, other.user_number);
+
+    // 4. Таймер на пропущенный (если не ответят за 30 сек)
     if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
     callTimeoutRef.current = setTimeout(async () => {
       if (call.busy) { 
@@ -195,14 +222,16 @@ function Conversation() {
     finally { setSending(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
   }
 
-  // --- УДАЛЕНИЕ ЧЕРЕЗ RPC (НАДЕЖНЫЙ СПОСОБ) ---
   async function executeDelete() {
-    if (!deleteConfirmId) return;
+    if (!deleteConfirmId || !user) return;
     const idToDelete = deleteConfirmId;
-    setDeleteConfirmId(null); 
+    setDeleteConfirmId(null);
     setDebugError(null);
 
-    const { error } = await supabase.rpc('delete_own_message', { msg_id: idToDelete });
+    const { error } = await supabase.rpc('delete_own_message', {
+      msg_id: idToDelete,
+      user_id: user.id
+    });
 
     if (error) {
       setDebugError(`Ошибка удаления: ${error.message}`);
@@ -254,7 +283,16 @@ function Conversation() {
 
       <div className="relative z-10 flex w-full shrink-0 items-center gap-3 border-b border-zinc-800/50 bg-[#0f0914]/95 px-4 py-3 backdrop-blur">
         <Link to="/chats" className="rounded-full bg-zinc-800/50 px-3 py-1.5 text-xs text-zinc-300 shrink-0">Назад</Link>
-        <span className="flex-1 truncate text-base font-semibold text-white">{other?.user_number ?? "..."}</span>
+        <div className="flex-1 min-w-0">
+          <span className="block truncate text-base font-semibold text-white">
+            {customName ?? other?.user_number ?? "..."}
+          </span>
+          {customName && (
+            <span className="block text-xs text-zinc-500 truncate">
+              {other?.user_number}
+            </span>
+          )}
+        </div>
         {other && (
           <button type="button" disabled={call.busy} onClick={handleStartCall} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800/50 text-purple-400 hover:bg-zinc-800 disabled:opacity-50">
             <Phone className="h-4 w-4" />
@@ -262,21 +300,36 @@ function Conversation() {
         )}
       </div>
 
+      {/* 👇 НАЧАЛО ЦИКЛА messages.map 👇 */}
       <div className="relative z-10 min-h-0 w-full flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-4 py-4">
         {messages.map((m, index) => {
           const mine = m.sender_id === user?.id;
-          
           const prev = index > 0 ? messages[index - 1] : null;
           const showDate = !prev || dayKey(prev.created_at) !== dayKey(m.created_at);
 
-          if (m.message_type === 'missed_call') {
+          // --- ОТОБРАЖЕНИЕ ЗВОНКОВ ---
+          if (m.message_type === 'missed_call' || m.message_type === 'outgoing_call' || m.message_type === 'incoming_call') {
+            let icon = <Phone className="h-3 w-3" />;
+            let text = m.body;
+            let color = "bg-zinc-800 text-zinc-400";
+
+            if (m.message_type === 'missed_call') {
+              icon = <PhoneMissed className="h-3 w-3 text-red-400" />;
+              text = mine ? "Вы пропустили звонок" : "Пропущенный звонок";
+              color = "bg-red-500/20 text-red-400";
+            } else if (m.message_type === 'outgoing_call') {
+              icon = <PhoneOutgoing className="h-3 w-3 text-green-400" />;
+              text = mine ? "Исходящий звонок" : "Входящий звонок";
+              color = "bg-green-500/20 text-green-400";
+            }
+
             return (
               <div key={m.id} className="w-full">
                 {showDate && <div className="my-4 text-center"><span className="rounded-full bg-zinc-800 px-3 py-1 text-[11px] text-zinc-400">{formatDialogDate(m.created_at)}</span></div>}
                 <div className="flex w-full justify-center my-2">
-                  <div className={`flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-medium ${mine ? "bg-red-500/20 text-red-400" : "bg-zinc-800 text-zinc-400"}`}>
-                    <Phone className="h-3 w-3 rotate-90" />
-                    {mine ? "Вы пропустили звонок" : "Пропущенный звонок"}
+                  <div className={`flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-medium ${color}`}>
+                    {icon}
+                    {text}
                   </div>
                 </div>
               </div>
@@ -334,6 +387,7 @@ function Conversation() {
         })}
         <div ref={bottomRef} className="h-2" />
       </div>
+      {/* 👆 КОНЕЦ ЦИКЛА messages.map 👆 */}
 
       <div className="relative z-10 w-full shrink-0 border-t border-zinc-800/50 bg-[#0f0914] px-2 py-3 pb-safe">
         {debugError && <p className="mb-2 px-2 text-xs text-red-500 font-bold bg-red-500/10 p-2 rounded-lg">{debugError}</p>}
