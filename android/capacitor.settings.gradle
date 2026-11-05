@@ -13,3 +13,6 @@ project(':capawesome-capacitor-volume').projectDir = new File('../node_modules/@
 
 include ':onesignal-capacitor-plugin'
 project(':onesignal-capacitor-plugin').projectDir = new File('../node_modules/@onesignal/capacitor-plugin/android')
+
+include ':call-screen'
+project(':call-screen').projectDir = new File('../node_modules/call-screen/android')

@@ -13,6 +13,7 @@ dependencies {
     implementation project(':capacitor-splash-screen')
     implementation project(':capawesome-capacitor-volume')
     implementation project(':onesignal-capacitor-plugin')
+    implementation project(':call-screen')
 
 }
 
