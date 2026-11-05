@@ -4,10 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type Profile } from "@/hooks/useAuth";
 import { t } from "@/lib/i18n";
 import { useCall } from "@/lib/call";
-import { Plugins } from '@capacitor/core'; // Для вызова нативного плагина
+import { Capacitor } from '@capacitor/core';
 import { Phone, Paperclip, Mic, Square, Pencil, Trash2, X, Navigation, Play, Pause, PhoneOutgoing, PhoneMissed } from "lucide-react";
-
-const { AudioControl } = Plugins; // Наш нативный плагин
 
 export const Route = createFileRoute("/chats/$conversationId")({ component: Conversation });
 
@@ -100,6 +98,7 @@ function Conversation() {
   
   const [recording, setRecording] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
+  const [callEvent, setCallEvent] = useState<string | null>(null);
   
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -122,7 +121,7 @@ function Conversation() {
       const rows = (profiles ?? []) as Profile[];
       setOther(rows.find((p) => p.id === otherId) ?? null);
       if (rows.find((p) => p.id === user.id)) setMyLang(rows.find((p) => p.id === user.id)!.preferred_language);
-      
+
       const { data: aliasData } = await supabase.from("contact_aliases").select("alias").eq("owner_id", user.id).eq("contact_id", otherId).maybeSingle();
       if (aliasData) setCustomName(aliasData.alias);
 
@@ -133,7 +132,15 @@ function Conversation() {
 
   useEffect(() => {
     const channel = supabase.channel(`messages-${conversationId}`).on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` }, (payload) => {
-      if (payload.eventType === 'INSERT') setMessages((prev) => [...prev, payload.new as Message]);
+      if (payload.eventType === 'INSERT') {
+        const newMsg = payload.new as Message;
+        setMessages((prev) => [...prev, newMsg]);
+
+        if (newMsg.message_type === 'outgoing_call') {
+          setCallEvent("Входящий звонок!");
+          setTimeout(() => setCallEvent(null), 5000);
+        }
+      }
       if (payload.eventType === 'UPDATE') setMessages((prev) => prev.map(m => m.id === (payload.new as Message).id ? payload.new as Message : m));
       if (payload.eventType === 'DELETE') setMessages((prev) => prev.filter(m => m.id !== (payload.old as Message).id));
     }).subscribe();
@@ -165,12 +172,13 @@ function Conversation() {
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
   };
 
-  // --- ЗВОНОК С ЛОГИРОВАНИЕМ И ВКЛЮЧЕНИЕМ ДИНАМИКА ---
+  // --- ЗВОНОК С ЛОГИРОВАНИЕМ ---
   const handleStartCall = async () => {
     if (!other || !user) return;
 
-    // 1. Принудительно включаем громкую связь через нативный плагин
+    // 1. Принудительно включаем громкую связь
     try {
+      const { AudioControl } = (window as any).Capacitor.Plugins;
       await AudioControl.enableSpeaker();
     } catch (e) {
       console.warn("Не удалось включить динамик", e);
@@ -187,7 +195,7 @@ function Conversation() {
     // 3. Запускаем сам звонок
     call.startCall(other.id, other.user_number);
 
-    // 4. Таймер на пропущенный (если не ответят за 30 сек)
+    // 4. Таймер на пропущенный
     if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
     callTimeoutRef.current = setTimeout(async () => {
       if (call.busy) { 
@@ -293,6 +301,16 @@ function Conversation() {
             </span>
           )}
         </div>
+
+        {callEvent && (
+          <div className="absolute top-16 left-0 right-0 flex justify-center z-50 animate-bounce">
+            <div className="bg-green-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2">
+              <Phone className="h-4 w-4 animate-pulse" />
+              {callEvent}
+            </div>
+          </div>
+        )}
+
         {other && (
           <button type="button" disabled={call.busy} onClick={handleStartCall} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800/50 text-purple-400 hover:bg-zinc-800 disabled:opacity-50">
             <Phone className="h-4 w-4" />
@@ -300,14 +318,12 @@ function Conversation() {
         )}
       </div>
 
-      {/* 👇 НАЧАЛО ЦИКЛА messages.map 👇 */}
       <div className="relative z-10 min-h-0 w-full flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-4 py-4">
         {messages.map((m, index) => {
           const mine = m.sender_id === user?.id;
           const prev = index > 0 ? messages[index - 1] : null;
           const showDate = !prev || dayKey(prev.created_at) !== dayKey(m.created_at);
 
-          // --- ОТОБРАЖЕНИЕ ЗВОНКОВ ---
           if (m.message_type === 'missed_call' || m.message_type === 'outgoing_call' || m.message_type === 'incoming_call') {
             let icon = <Phone className="h-3 w-3" />;
             let text = m.body;
@@ -387,7 +403,6 @@ function Conversation() {
         })}
         <div ref={bottomRef} className="h-2" />
       </div>
-      {/* 👆 КОНЕЦ ЦИКЛА messages.map 👆 */}
 
       <div className="relative z-10 w-full shrink-0 border-t border-zinc-800/50 bg-[#0f0914] px-2 py-3 pb-safe">
         {debugError && <p className="mb-2 px-2 text-xs text-red-500 font-bold bg-red-500/10 p-2 rounded-lg">{debugError}</p>}
