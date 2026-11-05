@@ -15,15 +15,23 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
 
-        versionCode 7
-        versionName "1.0.23"
+        versionCode 1
+        versionName "1.0.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
-    
+
+    // 👇 ИСПРАВЛЕНИЕ ДЛЯ CALL-SCREEN 👇
+    sourceSets {
+        main {
+            res.srcDirs += 'src/main/res'
+        }
+    }
+    // 👆 КОНЕЦ ИСПРАВЛЕНИЯ 👆
+
     signingConfigs {
         release {
             keyAlias keystoreProperties['keyAlias']
@@ -62,5 +70,11 @@ dependencies {
 
 apply from: 'capacitor.build.gradle'
 
-// ЖЕСТКОЕ ПОДКЛЮЧЕНИЕ FIREBASE (без try-catch)
-apply plugin: 'com.google.gms.google-services'
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
