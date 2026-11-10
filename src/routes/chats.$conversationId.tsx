@@ -4,7 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type Profile } from "@/hooks/useAuth";
 import { t } from "@/lib/i18n";
 import { useCall } from "@/lib/call";
-import { Capacitor } from '@capacitor/core';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { KeepAwake } from '@capacitor-community/keep-awake';
 import { Phone, Paperclip, Mic, Square, Pencil, Trash2, X, Navigation, Play, Pause, PhoneOutgoing, PhoneMissed } from "lucide-react";
 
 export const Route = createFileRoute("/chats/$conversationId")({ component: Conversation });
@@ -98,7 +99,6 @@ function Conversation() {
   
   const [recording, setRecording] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
-  const [callEvent, setCallEvent] = useState<string | null>(null);
   
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -109,6 +109,30 @@ function Conversation() {
 
   const tr = t(myLang);
   const call = useCall();
+
+  // 🔊 РАЗРЕШЕНИЕ НА УВЕДОМЛЕНИЯ
+  useEffect(() => {
+    const setupNotifications = async () => {
+      try {
+        const perm = await LocalNotifications.requestPermissions();
+        if (perm.display === 'granted') {
+          // Создаем канал для звонков (с системным звуком)
+          await LocalNotifications.createChannel({
+            id: 'calls',
+            name: 'Звонки',
+            description: 'Входящие звонки',
+            importance: 5,
+            visibility: 1,
+            sound: 'default',
+            vibration: true,
+          });
+        }
+      } catch (e) {
+        console.warn("Не удалось настроить уведомления", e);
+      }
+    };
+    setupNotifications();
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -121,10 +145,10 @@ function Conversation() {
       const rows = (profiles ?? []) as Profile[];
       setOther(rows.find((p) => p.id === otherId) ?? null);
       if (rows.find((p) => p.id === user.id)) setMyLang(rows.find((p) => p.id === user.id)!.preferred_language);
-
+      
       const { data: aliasData } = await supabase.from("contact_aliases").select("alias").eq("owner_id", user.id).eq("contact_id", otherId).maybeSingle();
       if (aliasData) setCustomName(aliasData.alias);
-
+      
       const { data: msgs } = await supabase.from("messages").select("*").eq("conversation_id", conversationId).order("created_at", { ascending: true });
       setMessages((msgs ?? []) as Message[]);
     })();
@@ -132,15 +156,7 @@ function Conversation() {
 
   useEffect(() => {
     const channel = supabase.channel(`messages-${conversationId}`).on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` }, (payload) => {
-      if (payload.eventType === 'INSERT') {
-        const newMsg = payload.new as Message;
-        setMessages((prev) => [...prev, newMsg]);
-
-        if (newMsg.message_type === 'outgoing_call') {
-          setCallEvent("Входящий звонок!");
-          setTimeout(() => setCallEvent(null), 5000);
-        }
-      }
+      if (payload.eventType === 'INSERT') setMessages((prev) => [...prev, payload.new as Message]);
       if (payload.eventType === 'UPDATE') setMessages((prev) => prev.map(m => m.id === (payload.new as Message).id ? payload.new as Message : m));
       if (payload.eventType === 'DELETE') setMessages((prev) => prev.filter(m => m.id !== (payload.old as Message).id));
     }).subscribe();
@@ -172,19 +188,32 @@ function Conversation() {
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
   };
 
-  // --- ЗВОНОК С ЛОГИРОВАНИЕМ ---
+  // --- ЗВОНОК С УВЕДОМЛЕНИЕМ И ЗВУКОМ ---
   const handleStartCall = async () => {
     if (!other || !user) return;
 
-    // 1. Принудительно включаем громкую связь
+    // 1. Включаем WakeLock (чтобы экран не гас во время звонка)
     try {
-      const { AudioControl } = (window as any).Capacitor.Plugins;
-      await AudioControl.enableSpeaker();
-    } catch (e) {
-      console.warn("Не удалось включить динамик", e);
-    }
+      await KeepAwake.keepAwake();
+    } catch (e) { console.warn("WakeLock не работает", e); }
 
-    // 2. Записываем исходящий звонок в базу
+    // 2. Показываем локальное уведомление со звуком
+    try {
+      await LocalNotifications.schedule({
+        notifications: [{
+          title: "Исходящий звонок",
+          body: `Звонок пользователю ${other.user_number}`,
+          id: 1,
+          channelId: 'calls',
+          sound: 'default',
+          ongoing: true,
+          autoCancel: false,
+          extra: { type: 'outgoing_call', conversationId }
+        }]
+      });
+    } catch (e) { console.warn("Не удалось показать уведомление", e); }
+
+    // 3. Записываем звонок в базу
     await supabase.from("messages").insert({
       conversation_id: conversationId,
       sender_id: user.id,
@@ -192,12 +221,17 @@ function Conversation() {
       message_type: "outgoing_call",
     });
 
-    // 3. Запускаем сам звонок
+    // 4. Запускаем WebRTC
     call.startCall(other.id, other.user_number);
 
-    // 4. Таймер на пропущенный
+    // 5. Таймер на пропущенный
     if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
     callTimeoutRef.current = setTimeout(async () => {
+      try {
+        await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
+        await KeepAwake.allowSleep();
+      } catch (e) {}
+      
       if (call.busy) { 
         await supabase.from("messages").insert({
           conversation_id: conversationId, sender_id: user.id, body: "Пропущенный звонок", message_type: "missed_call",
@@ -207,7 +241,11 @@ function Conversation() {
   };
 
   useEffect(() => {
-    return () => { if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current); };
+    return () => { 
+      if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
+      LocalNotifications.cancel({ notifications: [{ id: 1 }] }).catch(() => {});
+      KeepAwake.allowSleep().catch(() => {});
+    };
   }, []);
 
   async function send(e: React.FormEvent) {
@@ -233,12 +271,12 @@ function Conversation() {
   async function executeDelete() {
     if (!deleteConfirmId || !user) return;
     const idToDelete = deleteConfirmId;
-    setDeleteConfirmId(null);
+    setDeleteConfirmId(null); 
     setDebugError(null);
 
-    const { error } = await supabase.rpc('delete_own_message', {
+    const { error } = await supabase.rpc('delete_own_message', { 
       msg_id: idToDelete,
-      user_id: user.id
+      user_id: user.id 
     });
 
     if (error) {
@@ -301,16 +339,6 @@ function Conversation() {
             </span>
           )}
         </div>
-
-        {callEvent && (
-          <div className="absolute top-16 left-0 right-0 flex justify-center z-50 animate-bounce">
-            <div className="bg-green-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2">
-              <Phone className="h-4 w-4 animate-pulse" />
-              {callEvent}
-            </div>
-          </div>
-        )}
-
         {other && (
           <button type="button" disabled={call.busy} onClick={handleStartCall} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800/50 text-purple-400 hover:bg-zinc-800 disabled:opacity-50">
             <Phone className="h-4 w-4" />
@@ -328,7 +356,7 @@ function Conversation() {
             let icon = <Phone className="h-3 w-3" />;
             let text = m.body;
             let color = "bg-zinc-800 text-zinc-400";
-
+            
             if (m.message_type === 'missed_call') {
               icon = <PhoneMissed className="h-3 w-3 text-red-400" />;
               text = mine ? "Вы пропустили звонок" : "Пропущенный звонок";

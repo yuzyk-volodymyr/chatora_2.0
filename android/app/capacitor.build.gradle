@@ -9,11 +9,13 @@ android {
 
 apply from: "../capacitor-cordova-android-plugins/cordova.variables.gradle"
 dependencies {
+    implementation project(':capacitor-community-keep-awake')
+    implementation project(':capacitor-local-notifications')
     implementation project(':capacitor-push-notifications')
     implementation project(':capacitor-splash-screen')
     implementation project(':capawesome-capacitor-volume')
+    implementation project(':capgo-capacitor-incoming-call-kit')
     implementation project(':onesignal-capacitor-plugin')
-    implementation project(':call-screen')
 
 }
 
