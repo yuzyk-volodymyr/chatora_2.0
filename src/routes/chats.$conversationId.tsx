@@ -5,7 +5,6 @@ import { useAuth, type Profile } from "@/hooks/useAuth";
 import { t } from "@/lib/i18n";
 import { useCall } from "@/lib/call";
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { KeepAwake } from '@capacitor-community/keep-awake';
 import { Phone, Paperclip, Mic, Square, Pencil, Trash2, X, Navigation, Play, Pause, PhoneOutgoing, PhoneMissed } from "lucide-react";
 
 export const Route = createFileRoute("/chats/$conversationId")({ component: Conversation });
@@ -105,26 +104,30 @@ function Conversation() {
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const touchStartPos = useRef<{ x: number, y: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  
+  // 🔊 Для повторяющегося уведомления
   const callTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const ringIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const notificationIdRef = useRef<number>(1);
 
   const tr = t(myLang);
   const call = useCall();
 
-  // 🔊 РАЗРЕШЕНИЕ НА УВЕДОМЛЕНИЯ
+  // Настройка канала уведомлений
   useEffect(() => {
     const setupNotifications = async () => {
       try {
         const perm = await LocalNotifications.requestPermissions();
         if (perm.display === 'granted') {
-          // Создаем канал для звонков (с системным звуком)
           await LocalNotifications.createChannel({
             id: 'calls',
             name: 'Звонки',
             description: 'Входящие звонки',
-            importance: 5,
+            importance: 5, // Максимальный приоритет (звук + всплывающее окно)
             visibility: 1,
-            sound: 'default',
+            sound: 'default', // Системный звук
             vibration: true,
+            lights: true,
           });
         }
       } catch (e) {
@@ -188,32 +191,56 @@ function Conversation() {
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
   };
 
-  // --- ЗВОНОК С УВЕДОМЛЕНИЕМ И ЗВУКОМ ---
+  // 🛑 ОСТАНОВКА РИНГТОНА
+  const stopRinging = async () => {
+    if (ringIntervalRef.current) {
+      clearInterval(ringIntervalRef.current);
+      ringIntervalRef.current = null;
+    }
+    if (callTimeoutRef.current) {
+      clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = null;
+    }
+    try {
+      await LocalNotifications.cancel({ notifications: [{ id: notificationIdRef.current }] });
+    } catch (e) {}
+  };
+
+  // --- ЗВОНОК С ПОВТОРЯЮЩИМСЯ ЗВУКОМ ---
   const handleStartCall = async () => {
     if (!other || !user) return;
 
-    // 1. Включаем WakeLock (чтобы экран не гас во время звонка)
-    try {
-      await KeepAwake.keepAwake();
-    } catch (e) { console.warn("WakeLock не работает", e); }
+    notificationIdRef.current = Math.floor(Math.random() * 10000);
 
-    // 2. Показываем локальное уведомление со звуком
-    try {
-      await LocalNotifications.schedule({
-        notifications: [{
-          title: "Исходящий звонок",
-          body: `Звонок пользователю ${other.user_number}`,
-          id: 1,
-          channelId: 'calls',
-          sound: 'default',
-          ongoing: true,
-          autoCancel: false,
-          extra: { type: 'outgoing_call', conversationId }
-        }]
-      });
-    } catch (e) { console.warn("Не удалось показать уведомление", e); }
+    // Функция для показа уведомления
+    const showNotification = async () => {
+      try {
+        await LocalNotifications.schedule({
+          notifications: [{
+            title: "Исходящий звонок",
+            body: `Звонок пользователю ${other.user_number}`,
+            id: notificationIdRef.current,
+            channelId: 'calls',
+            sound: 'default',
+            ongoing: true,
+            autoCancel: false,
+            extra: { type: 'outgoing_call', conversationId }
+          }]
+        });
+      } catch (e) {
+        console.warn("Не удалось показать уведомление", e);
+      }
+    };
 
-    // 3. Записываем звонок в базу
+    // Показываем первое уведомление
+    await showNotification();
+
+    // 🔁 Запускаем цикл: каждые 3 секунды обновляем уведомление, чтобы оно снова звенело
+    ringIntervalRef.current = setInterval(() => {
+      showNotification();
+    }, 3000);
+
+    // Записываем звонок в базу
     await supabase.from("messages").insert({
       conversation_id: conversationId,
       sender_id: user.id,
@@ -221,17 +248,12 @@ function Conversation() {
       message_type: "outgoing_call",
     });
 
-    // 4. Запускаем WebRTC
+    // Запускаем WebRTC
     call.startCall(other.id, other.user_number);
 
-    // 5. Таймер на пропущенный
-    if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
+    // Таймер на пропущенный (30 секунд)
     callTimeoutRef.current = setTimeout(async () => {
-      try {
-        await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
-        await KeepAwake.allowSleep();
-      } catch (e) {}
-      
+      await stopRinging();
       if (call.busy) { 
         await supabase.from("messages").insert({
           conversation_id: conversationId, sender_id: user.id, body: "Пропущенный звонок", message_type: "missed_call",
@@ -242,9 +264,7 @@ function Conversation() {
 
   useEffect(() => {
     return () => { 
-      if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
-      LocalNotifications.cancel({ notifications: [{ id: 1 }] }).catch(() => {});
-      KeepAwake.allowSleep().catch(() => {});
+      stopRinging();
     };
   }, []);
 
