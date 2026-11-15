@@ -9,21 +9,22 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace = "com.chatora.app"
     compileSdk = rootProject.ext.compileSdkVersion
-
+    
     defaultConfig {
         applicationId "com.chatora.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-
-        versionCode 1
-        versionName "1.0.0"
-
+        
+        // ПОДНИМАЕМ ВЕРСИЮ
+        versionCode 2
+        versionName "1.0.1"
+        
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
-
+    
     // 👇 ИСПРАВЛЕНИЕ ДЛЯ CALL-SCREEN 👇
     sourceSets {
         main {
