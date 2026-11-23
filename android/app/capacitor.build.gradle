@@ -13,6 +13,7 @@ dependencies {
     implementation project(':capacitor-local-notifications')
     implementation project(':capacitor-push-notifications')
     implementation project(':capacitor-splash-screen')
+    implementation project(':capawesome-team-capacitor-android-foreground-service')
     implementation project(':capawesome-capacitor-volume')
     implementation project(':capgo-capacitor-incoming-call-kit')
     implementation project(':onesignal-capacitor-plugin')

@@ -1,29 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Разрешение на доступ к интернету (для чата и звонков) -->
+    <!-- Разрешение на доступ к интернету -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Разрешения для микрофона (голосовые сообщения и звонки) -->
+    <!-- Разрешения для микрофона -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
-    <!-- Разрешения для камеры и вспышки -->
+    <!-- Разрешения для камеры -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
 
-    <!-- Разрешения для отправки файлов и картинок (Android 13+ и старые версии) -->
+    <!-- Разрешения для файлов и картинок -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
-    <!-- Разрешение на показ уведомлений (Android 13+) -->
+    <!-- Разрешение на уведомления (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- 👇 РАЗРЕШЕНИЯ ДЛЯ FOREGROUND SERVICE (ФОНОВЫЙ ЗВОНОК) 👇 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- 👆 КОНЕЦ РАЗРЕШЕНИЙ ДЛЯ FOREGROUND SERVICE 👆 -->
 
     <application
         android:allowBackup="true"
@@ -34,7 +40,6 @@
         android:requestLegacyExternalStorage="true"
         android:theme="@style/AppTheme">
 
-        <!-- Главная активность (заставка берется из android:theme) -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:name=".MainActivity"
