@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type Profile } from "@/hooks/useAuth";
 import { t } from "@/lib/i18n";
 import { useCall } from "@/lib/call";
-import { ForegroundService } from '@capawesome-team/capacitor-android-foreground-service';
+import { LocalNotifications } from '@capacitor/local-notifications';
 import { Phone, Paperclip, Mic, Square, Pencil, Trash2, X, Navigation, Play, Pause, PhoneOutgoing, PhoneMissed } from "lucide-react";
 
 export const Route = createFileRoute("/chats/$conversationId")({ component: Conversation });
@@ -105,8 +105,34 @@ function Conversation() {
   const touchStartPos = useRef<{ x: number, y: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const callTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const ringIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const notificationIdRef = useRef<number>(1);
+
   const tr = t(myLang);
   const call = useCall();
+
+  // Настройка канала уведомлений
+  useEffect(() => {
+    const setupNotifications = async () => {
+      try {
+        const perm = await LocalNotifications.requestPermissions();
+        if (perm.display === 'granted') {
+          await LocalNotifications.createChannel({
+            id: 'calls',
+            name: 'Звонки',
+            description: 'Входящие звонки',
+            importance: 5,
+            visibility: 1,
+            sound: 'default',
+            vibration: true,
+            lights: true,
+          });
+        }
+      } catch (e) { console.warn("Ошибка настройки уведомлений", e); }
+    };
+    setupNotifications();
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -162,25 +188,84 @@ function Conversation() {
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
   };
 
-  // --- ЗВОНОК С FOREGROUND SERVICE (РАБОТА В ФОНЕ) ---
+  // 🔔 ОСТАНОВКА ГУДКА
+  const stopRinging = async () => {
+    if (ringIntervalRef.current) {
+      clearInterval(ringIntervalRef.current);
+      ringIntervalRef.current = null;
+    }
+    if (callTimeoutRef.current) {
+      clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = null;
+    }
+    try {
+      await LocalNotifications.cancel({ notifications: [{ id: notificationIdRef.current }] });
+    } catch (e) {}
+  };
+
+  // 🔔 ЗАПУСК ГУДКА (ДЛЯ ВХОДЯЩЕГО)
+  const startRinging = async (callerNum: string) => {
+    notificationIdRef.current = Math.floor(Math.random() * 10000);
+
+    const showNotification = async () => {
+      try {
+        await LocalNotifications.schedule({
+          notifications: [{
+            title: "Входящий звонок",
+            body: `Звонок от ${callerNum}`,
+            id: notificationIdRef.current,
+            channelId: 'calls',
+            sound: 'default',
+            ongoing: true,
+            autoCancel: false,
+            extra: { type: 'incoming_call', conversationId }
+          }]
+        });
+      } catch (e) {}
+    };
+
+    await showNotification();
+
+    ringIntervalRef.current = setInterval(() => {
+      showNotification();
+    }, 3000);
+
+    callTimeoutRef.current = setTimeout(async () => {
+      await stopRinging();
+      await supabase.from("messages").insert({
+        conversation_id: conversationId,
+        sender_id: user?.id || '',
+        body: "Пропущенный звонок",
+        message_type: "missed_call",
+      });
+    }, 30000);
+  };
+
+  // Realtime подписка + Обработка входящего звонка
+  useEffect(() => {
+    const channel = supabase.channel(`messages-${conversationId}`).on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` }, (payload) => {
+      if (payload.eventType === 'INSERT') {
+        const newMsg = payload.new as Message;
+        setMessages((prev) => [...prev, newMsg]);
+
+        // Если это входящий звонок (не от меня)
+        if (newMsg.message_type === 'outgoing_call' && newMsg.sender_id !== user?.id) {
+           startRinging(other?.user_number || "Собеседник");
+        }
+      }
+      if (payload.eventType === 'UPDATE') setMessages((prev) => prev.map(m => m.id === (payload.new as Message).id ? payload.new as Message : m));
+      if (payload.eventType === 'DELETE') setMessages((prev) => prev.filter(m => m.id !== (payload.old as Message).id));
+    }).subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+      stopRinging();
+    };
+  }, [conversationId, user, other]);
+
+  // --- ИСХОДЯЩИЙ ЗВОНОК (БЕЗ СПАМА) ---
   const handleStartCall = async () => {
     if (!other || !user) return;
 
-    // 1. Запускаем Foreground Service, чтобы Android не усыпил WebView
-    try {
-      await ForegroundService.startForegroundService({
-        id: 1,
-        title: "Идет звонок",
-        body: `Звонок пользователю ${other.user_number}`,
-        smallIcon: "ic_stat_icon_config_sample",
-        notificationChannelId: "calls",
-        silent: false,
-      });
-    } catch (e) {
-      console.warn("Не удалось запустить Foreground Service", e);
-    }
-
-    // 2. Записываем звонок в базу
     await supabase.from("messages").insert({
       conversation_id: conversationId,
       sender_id: user.id,
@@ -188,15 +273,11 @@ function Conversation() {
       message_type: "outgoing_call",
     });
 
-    // 3. Запускаем WebRTC
     call.startCall(other.id, other.user_number);
   };
 
-  // Остановка службы при размонтировании (если звонок завершен)
   useEffect(() => {
-    return () => {
-      ForegroundService.stopForegroundService().catch(() => {});
-    };
+    return () => { stopRinging(); };
   }, []);
 
   async function send(e: React.FormEvent) {
